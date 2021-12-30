@@ -214,7 +214,8 @@ BTAB_02_20 <- BTAB_02_20 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängd mm")
+         "final_length" = "Totallängd mm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 BTAB_02_20 <- BTAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -370,7 +371,7 @@ BSAB_91_01 <- BSAB_91_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep 
 
 #**** Read in the .xls files =======================================================
 # This is not a t-file! (growth)
-BSabboa2002 <- readxl::read_xls("data/Brunskär/BSabboa2002.xls")
+# BSabboa2002 <- readxl::read_xls("data/Brunskär/BSabboa2002.xls")
 
 # These are t-files
 BSabboa2003 <- readxl::read_xls("data/Brunskär/BSabbot2003p.xls") # specify which tab here... 
@@ -434,7 +435,8 @@ BSAB_03_06 <- BSAB_03_06 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängd mm")
+         "final_length" = "Totallängd mm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 BSAB_03_06 <- BSAB_03_06 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -723,7 +725,8 @@ FBAB_02_20 <- FBAB_02_20 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängd mm")
+         "final_length" = "Totallängd mm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 FBAB_02_20 <- FBAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -765,7 +768,7 @@ FBAB_02_20 <- FBAB_02_20 %>%
 # Check it worked
 FBAB_02_20 %>% 
   mutate(year_group = ifelse(catch_year < 2007, "02-06", "07-20")) %>% 
-  #filter(!catch_year == 2002) %>% 
+  filter(!catch_year == 2002) %>% 
   ggplot(aes(reading_no, length_mm, color = factor(catch_year))) + 
   geom_jitter(alpha = 0.5, height = 0) +
   facet_wrap(~year_group)
@@ -961,8 +964,9 @@ FM_02_20 <- FM_02_20 %>%
          "sex" = "Kön",
          "sample_nr" = "Löpnr",
          "final_length" = "Total.längd.mm") %>% 
-  mutate(area = "JM",
-         cohort = catch_year - age)
+  mutate(area = "FM",
+         cohort = catch_year - age) %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -971,6 +975,12 @@ FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = ".
 # It's the operculum length. I need to correct that for those years
 # Convert from operculum to length
 colnames(FM_02_20)
+
+FM_02_20 %>% 
+  #filter(age_ring == "Y") %>% 
+  ggplot(., aes(factor(reading_no), length_mm, color = factor(catch_year))) + 
+  geom_point() + 
+  stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) 
 
 # If there are more readings than the age, it means plus growth was measured. This means
 # that the final length is actually the radius, which we need when converting from operculum
@@ -987,17 +997,16 @@ FM_02_20 %>%
 FM_02_20 %>% group_by(catch_year) %>% distinct(Magnifikation)
 FM_02_20 %>% group_by(catch_year) %>% distinct(is.na(length_mm))
 
-FM_02_20_test <- FM_02_20 %>%
+FM_02_20 <- FM_02_20 %>%
   group_by(ID) %>% 
   mutate(max_op_length = max(length_mm)) %>% # In contrast to the xls files where ALL lengths had to be converted, this is only for certain years. Hence I didn't bother to call lengths "op_length"
   ungroup() %>% 
-  mutate(length_mm = ifelse(catch_year %in% c(2004, 2005, 2006),
+  mutate(length_mm = ifelse(catch_year %in% c(2003, 2004, 2005, 2006),
                             (15.56 + 18.485*length_mm*Magnifikation - 0.1004*(length_mm*Magnifikation)^2)*final_length /
                               ((15.56 + 18.485*max_op_length*Magnifikation - 0.1004*(max_op_length*Magnifikation)^2)),
                             length_mm))
 
 FM_02_20 %>% group_by(catch_year) %>% distinct(is.na(length_mm))
-
 
 #**** Bind rows ====================================================================
 FM_02_20$source <- "xls"
@@ -1082,7 +1091,8 @@ HO_88_20 <- HO_88_20 %>%
          "sample_nr" = "Löpnr",
          "final_length" = "Total.längd.mm") %>% 
   mutate(area = "HO",
-         cohort = catch_year - age)
+         cohort = catch_year - age) %>% 
+  drop_na(age)
 
 # Create ID column
 HO_88_20 <- HO_88_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1211,7 +1221,8 @@ JM_63_20 <- JM_63_20 %>%
          "sample_nr" = "Löpnr",
          "final_length" = "Total.längd.mm") %>% 
   mutate(area = "JM",
-         cohort = catch_year - age)
+         cohort = catch_year - age) %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 JM_63_20 <- JM_63_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1220,6 +1231,12 @@ unique(is.na(JM_63_20$length_mm))
 unique(is.na(JM_63_20$final_length))
 unique(is.na(JM_63_20$age))
 unique(is.na(JM_63_20$catch_year))
+
+JM_63_20 %>% 
+  filter(catch_year > 1998 & catch_year < 2008) %>% 
+  ggplot(aes(reading_no, length_mm, color = factor(catch_year))) + 
+  geom_point()
+
 
 #**** Bind rows ====================================================================
 JM_63_20$source <- "xls"
@@ -1249,6 +1266,9 @@ JM_63_20 %>%
   geom_point(alpha = 0.5) + 
   stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) + 
   facet_wrap(~factor(reading_no), scales = "free_y")
+
+ggplot(JM_63_20, aes(reading_no, length_mm, color = area)) +
+  geom_jitter(height = 0, alpha = 0.2)
 
 # Plot length-at-age over catch_year
 JM_63_20 %>% 
@@ -1304,7 +1324,7 @@ MUAB_91_01 <- MUAB_91_01 %>%
   mutate(age = catch_year - cohort)
 
 # Create ID column
-MUAB_91_01 <- BSAB_91_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
+MUAB_91_01 <- MUAB_91_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
 
 
 #**** Read in the .xls files =======================================================
@@ -1351,7 +1371,8 @@ MUAB_02_04 <- MUAB_02_04 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängd mm")
+         "final_length" = "Totallängd mm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 MUAB_02_04 <- MUAB_02_04 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1421,17 +1442,8 @@ MU_91_04 %>%
 
 
 #** Råneå ==========================================================================
-# These text files have encoding issues.. I have changed that manually. Originals are saved
-
-
 #**** Read in the .txt files =======================================================
-# These are bl 57
-# NVm doesn't matter! can use the same script for both 57 and 67
-# RAB85 <- read_delim("data/Råneå/RÅTAB85.TXT", delim = "\t", col_names = FALSE)  
-# RAB86 <- read_delim("data/Råneå/RÅTAB86.TXT", delim = "\t", col_names = FALSE)  
-
-# Not using these since it's a different gear!
-
+# These text files have encoding issues.. I have changed that manually. Originals are saved
 # These are bl 67
 RAB90 <- read_delim("data/Råneå/RÅTAB90.TXT", delim = "\t", col_names = FALSE)
 RAB96 <- read_delim("data/Råneå/RÅTAB96.TXT", delim = "\t", col_names = FALSE)
@@ -1500,7 +1512,8 @@ RAabboa2003 <- readxl::read_xls("data/Råneå/RAabbot2003p.xls")
 RAabboa2004 <- readxl::read_xls("data/Råneå/RAabbot2004p.xls")
 RAabboa2005 <- readxl::read_xls("data/Råneå/RAabbot2005p.xls")
 
-RAabboa_08_10 <- read.csv("data/Råneå/RAabbo_2008and2010.csv", header = TRUE, sep = ";") 
+RAabboa_08_10 <- read.csv("data/Råneå/RAabbo_2008and2010.csv", header = TRUE, sep = ";") %>% 
+  rename("År1" = "Tillväxt..mm.år.1")
 
 RAabboa2003$Kön <- as.character(RAabboa2003$Analysdatum)
 RAabboa2004$Kön <- as.character(RAabboa2004$Analysdatum)
@@ -1566,7 +1579,8 @@ RA_03_10 <- RA_03_10 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängdmm")
+         "final_length" = "Totallängdmm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 RA_03_10 <- RA_03_10 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1610,6 +1624,9 @@ RA_03_10$source <- "xls"
 RA_90_01$source <- "txt"
 
 # Change variable type so that we can join all data later
+
+RA_90_01$area <- "RA"
+
 RA_90_01$sex <- as.character(RA_90_01$sex)
 RA_03_10$gear <- as.character(RA_03_10$gear)
 RA_90_01$gear <- as.character(RA_90_01$gear)
@@ -1787,7 +1804,6 @@ SI_63_19 %>%
 
 
 #** Torhamn ========================================================================
-
 #**** Read in the .xls files =======================================================
 THAB_03_20 <- read.csv("data/Torhamn/THabbo.csv", header = TRUE, sep = ";")
 head(THAB_03_20)
@@ -1933,7 +1949,8 @@ VNAB_02 <- VNAB_02 %>%
          "cohort" = "Födelseår",
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
-         "final_length" = "Totallängd mm")
+         "final_length" = "Totallängd mm") %>% 
+  mutate(cohort = catch_year - age)
 
 # Create ID column
 VNAB_02 <- VNAB_02 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -2006,27 +2023,20 @@ VI_95_02 %>%
 d_full <- bind_rows(BT_77_20,
                     BS_91_06,
                     FB_77_20,
+                    FM_71_20,
+                    HO_88_20, 
+                    JM_63_20,
+                    MU_91_04, 
+                    RA_90_10,
                     SI_63_19,
                     TH_03_20,
-                    VI_95_02,
-                    RA_90_10,
-                    MU_91_04,
-                    JM_63_20,
-                    HO_88_20,
-                    FM_71_20)
+                    VI_95_02)
 
-d_full %>% group_by(area) %>% distinct(is.na(length_mm))
-d_full %>% group_by(area) %>% distinct(is.na(area))
-d_full %>% group_by(area) %>% distinct(is.na(catch_year))
-
-# Make sure non of these columns below have NA due to name mismatch when joining! They shouldn't have any NA
-# See Kvädöfjärden for how I can check that after re-naming and joining
-# This includes also gear!
-
-#ALSO
+# ALSO
 # WHen i mix old and new csv-files, rename after length at age 1 to ÅR1, like I do in forsmark. Else they will become NA when I bind_rows
 # FMabbo_02_and_17_20_gear09_aug <- read.csv("data/Forsmark/FMabbo_2002and2017to2020_gear09aug.csv", header = TRUE, sep = ";") %>% 
 #   rename("År1" = "Tillväxt..mm.år.1")
+
 
 d <- d_full %>%
   mutate(keep = ifelse(area == "FB" & catch_year == 2002, "N", "Y")) %>% 
@@ -2035,6 +2045,8 @@ d <- d_full %>%
                 cohort, final_length, gear, ID, sex) %>% 
   rename(age_bc = reading_no,
          age_catch = age)
+
+unique(is.na(d))
 
 write.csv(d, "data/for_analysis/dat.csv")
 write.csv(d_full, "data/all_dat.csv")

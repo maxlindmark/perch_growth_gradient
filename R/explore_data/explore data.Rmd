@@ -1,0 +1,173 @@
+---
+title: "Clean, standardize and join back-calculated length-at-age of perch from gillnet-survey data from SLU databases"
+author: "Max Lindmark, Anna Gårdmark"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE, cache=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 12,
+  fig.asp = 0.618,
+  fig.align ='center'
+)
+```
+
+## Load libraries
+
+```{r libraries}
+# Load libraries (install first if needed)
+library(tidyverse); theme_set(theme_light(base_size = 12))
+library(tidylog)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggsidekick) # devtools::install_github("seananderson/ggsidekick")
+library(RColorBrewer)
+library(forcats)
+library(viridis)
+```
+
+## Read data
+
+```{r read data}
+d <- readr::read_csv("https://raw.githubusercontent.com/maxlindmark/perch_growth_gradient/master/data/for_analysis/dat.csv") %>% dplyr::select(-...1)
+
+d
+glimpse(d)
+
+# Use only length-at-age by filtering on age_ring
+d <- d %>% filter(age_ring == "Y")
+```
+
+## Plot data
+### All data
+
+```{r all data}
+ggplot(d, aes(age_bc, length_mm, color = area)) +
+  geom_jitter(height = 0, alpha = 0.2)
+
+ggplot(d, aes(age_bc, length_mm, color = area)) +
+  geom_jitter(height = 0, alpha = 0.2) + 
+  facet_wrap(~ area)
+
+t <- d %>% filter(length_mm < 150 & age_bc > 6) %>% droplevels()
+
+unique(t$area)
+unique(t$catch_year)
+
+data.frame(t)
+```
+
+
+### Sample size, locations, length of time series
+
+```{r samples, location, time series}
+
+
+
+```
+
+```{r plot data}
+
+# D. EXPLORE DATA ==================================================================
+
+## Make markdown script instead!!
+## REMAINING ISSUES: FINBO 2002 - the fish length estimates calculated using magnifikation 
+# does not seem correct, compared to the other years
+
+# MOVE THIS TO ANOTHER SCRIPT!
+# FIRST PLOT MAP WITH POINTS; LABELLED WITH UNIQUE YEARS AND n
+# FOR EACH AREA PLOT MEAN SIZE AT AGE
+# "VBGE" CURVES
+# ETC ETC
+
+# Plot sample size over cohort
+d %>% 
+  group_by(cohort, area) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(cohort, n, fill = area)) + geom_bar(stat = "identity") + 
+  NULL
+
+d %>% 
+  group_by(cohort, area) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(cohort, n, fill = area)) + geom_bar(stat = "identity") + 
+  NULL
+
+# Calculate time-slopes by age and area
+d %>%
+  group_by(age_bc, area) %>% 
+  mutate(length_mm_ct = length_mm - mean(length_mm)) %>% # center length at age for comparison across ages
+  ggplot(., aes(catch_year, length_mm_ct, color = area)) + 
+  geom_point(size = 0.1, alpha = 0.5) + 
+  facet_wrap(~age_bc) +
+  #stat_smooth(inherit.aes = FALSE, aes(catch_year, length_mm_ct)) +
+  NULL
+
+time_slopes_by_year_area <- d %>%
+  group_by(age_bc, area) %>% # center length at age for comparison across ages
+  mutate(length_mm_ct = length_mm / mean(length_mm)) %>% 
+  ungroup() %>% 
+  mutate(id = paste(age_bc, area, sep = ";")) %>%
+  split(.$id) %>%
+  purrr::map(~lm(length_mm_ct ~ catch_year, data = .x)) %>%
+  purrr::map_df(broom::tidy, .id = 'id') %>%
+  filter(term == 'catch_year') %>% 
+  separate(id, into = c("age_bc", "area"), sep = ";") %>% 
+  mutate(upr = estimate + std.error*2, lwr = estimate - std.error*2) %>% 
+  mutate(id = paste(age_bc, area, sep = ";"))
+
+time_slopes_by_year_area
+
+# Add sample size so that we can filter on that
+sample_size <- d %>% 
+  group_by(age_bc, area) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  mutate(id = paste(age_bc, area, sep = ";")) %>% 
+  dplyr::select(n, id)
+
+# Join sample size
+time_slopes_by_year_area <- left_join(time_slopes_by_year_area, sample_size)
+
+# Plot effect sizes
+time_slopes_by_year_area %>%
+  filter(n > 30) %>% 
+  ggplot(., aes(reorder(age_bc, as.numeric(age_bc)), estimate, color = factor(area))) + 
+  geom_point(position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
+                position = position_dodge(width = 0.4)) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_viridis(discrete = TRUE) +
+  facet_wrap(~factor(area), scales = "free") + 
+  NULL
+
+time_slopes_by_year_area %>%
+  filter(n > 30) %>% 
+  ggplot(., aes(reorder(age_bc, as.numeric(age_bc)), estimate, color = factor(area))) + 
+  geom_point(position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
+                position = position_dodge(width = 0.4)) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_color_viridis(discrete = TRUE)
+  NULL
+  
+time_slopes_by_year_area %>%
+  filter(n > 30) %>% 
+  ggplot(., aes(as.numeric(age_bc), estimate)) + 
+  geom_point(position = position_dodge(width = 0.4)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  stat_smooth(method = "gam", formula = y ~ s(x, k = 3)) +
+  scale_color_viridis(discrete = TRUE) + 
+  NULL  
+```
+
