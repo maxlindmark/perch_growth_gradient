@@ -977,7 +977,12 @@ FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = ".
 colnames(FM_02_20)
 
 FM_02_20 %>% 
-  #filter(age_ring == "Y") %>% 
+  ggplot(., aes(factor(reading_no), length_mm, color = factor(catch_year))) + 
+  geom_point() + 
+  stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) 
+
+FM_02_20 %>% 
+  filter(catch_year > 2000 & catch_year < 2007) %>% 
   ggplot(., aes(factor(reading_no), length_mm, color = factor(catch_year))) + 
   geom_point() + 
   stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) 
@@ -1001,12 +1006,11 @@ FM_02_20 <- FM_02_20 %>%
   group_by(ID) %>% 
   mutate(max_op_length = max(length_mm)) %>% # In contrast to the xls files where ALL lengths had to be converted, this is only for certain years. Hence I didn't bother to call lengths "op_length"
   ungroup() %>% 
-  mutate(length_mm = ifelse(catch_year %in% c(2003, 2004, 2005, 2006),
+  mutate(length_mm = ifelse(catch_year %in% c(2004, 2005, 2006),
                             (15.56 + 18.485*length_mm*Magnifikation - 0.1004*(length_mm*Magnifikation)^2)*final_length /
                               ((15.56 + 18.485*max_op_length*Magnifikation - 0.1004*(max_op_length*Magnifikation)^2)),
                             length_mm))
 
-FM_02_20 %>% group_by(catch_year) %>% distinct(is.na(length_mm))
 
 #**** Bind rows ====================================================================
 FM_02_20$source <- "xls"
@@ -2031,12 +2035,6 @@ d_full <- bind_rows(BT_77_20,
                     SI_63_19,
                     TH_03_20,
                     VI_95_02)
-
-# ALSO
-# WHen i mix old and new csv-files, rename after length at age 1 to ÅR1, like I do in forsmark. Else they will become NA when I bind_rows
-# FMabbo_02_and_17_20_gear09_aug <- read.csv("data/Forsmark/FMabbo_2002and2017to2020_gear09aug.csv", header = TRUE, sep = ";") %>% 
-#   rename("År1" = "Tillväxt..mm.år.1")
-
 
 d <- d_full %>%
   mutate(keep = ifelse(area == "FB" & catch_year == 2002, "N", "Y")) %>% 
