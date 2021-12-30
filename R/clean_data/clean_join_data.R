@@ -1545,7 +1545,6 @@ sort(colnames(RAabboa2004))
 sort(colnames(RAabboa2005))
 sort(colnames(RAabboa_08_10))
 
-RAabboa_08_10$Areakod <- "RÅ"
 RAabboa_08_10$Födelseår <- RAabboa_08_10$Fångstår - RAabboa_08_10$Ålder
 RAabboa_08_10$Totallängdmm <- RAabboa_08_10$Total.längd.mm
 
@@ -1629,13 +1628,13 @@ RA_90_01$source <- "txt"
 
 # Change variable type so that we can join all data later
 
-RA_90_01$area <- "RA"
-
 RA_90_01$sex <- as.character(RA_90_01$sex)
 RA_03_10$gear <- as.character(RA_03_10$gear)
 RA_90_01$gear <- as.character(RA_90_01$gear)
 
 RA_90_10 <- bind_rows(RA_03_10, RA_90_01)
+
+RA_90_10$area <- "RA"
 
 RA_90_10$Analysdatum <- as.character(RA_90_10$Analysdatum)
 
