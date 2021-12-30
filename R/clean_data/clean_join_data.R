@@ -33,7 +33,288 @@ theme_set(ggsidekick::theme_sleek())
 # B. READ DATA =====================================================================
 #** Biotest ========================================================================
 #**** Read in the .txt files =======================================================
+BTAB77 <- read_delim("data/Biotest/BTTAB77.txt", delim = "\t", col_names = FALSE)  
+BTAB78 <- read_delim("data/Biotest/BTTAB78.txt", delim = "\t", col_names = FALSE)  
+BTAB79 <- read_delim("data/Biotest/BTTAB79.txt", delim = "\t", col_names = FALSE)  
+BTAB80 <- read_delim("data/Biotest/BTTAB80.txt", delim = "\t", col_names = FALSE)  
+BTAB81 <- read_delim("data/Biotest/BTTAB81.txt", delim = "\t", col_names = FALSE)  
+BTAB82 <- read_delim("data/Biotest/BTTAB82.txt", delim = "\t", col_names = FALSE)  
+BTAB83 <- read_delim("data/Biotest/BTTAB83.txt", delim = "\t", col_names = FALSE)  
+BTAB84 <- read_delim("data/Biotest/BTTAB84.txt", delim = "\t", col_names = FALSE)  
+BTAB85 <- read_delim("data/Biotest/BTTAB85.txt", delim = "\t", col_names = FALSE)  
+BTAB86 <- read_delim("data/Biotest/BTTAB86.txt", delim = "\t", col_names = FALSE)  
+BTAB87 <- read_delim("data/Biotest/BTTAB87.txt", delim = "\t", col_names = FALSE)  
+BTAB88 <- read_delim("data/Biotest/BTTAB88.txt", delim = "\t", col_names = FALSE)  
+BTAB89 <- read_delim("data/Biotest/BTTAB89.txt", delim = "\t", col_names = FALSE)  
+BTAB90 <- read_delim("data/Biotest/BTTAB90A.txt", delim = "\t", col_names = FALSE)  
+BTAB91 <- read_delim("data/Biotest/BTTAB91.txt", delim = "\t", col_names = FALSE)
+BTAB92 <- read_delim("data/Biotest/BTTAB92.txt", delim = "\t", col_names = FALSE)  
+BTAB93 <- read_delim("data/Biotest/BTTAB93.txt", delim = "\t", col_names = FALSE)  
+BTAB94 <- read_delim("data/Biotest/BTTAB94.txt", delim = "\t", col_names = FALSE)
+BTAB95 <- read_delim("data/Biotest/BTTAB95.txt", delim = "\t", col_names = FALSE)  
+BTAB96 <- read_delim("data/Biotest/BTTAB96.txt", delim = "\t", col_names = FALSE)  
+BTAB97 <- read_delim("data/Biotest/BTTAB97.txt", delim = "\t", col_names = FALSE)  
+BTAB98 <- read_delim("data/Biotest/BTTAB98.txt", delim = "\t", col_names = FALSE)  
+BTAB99 <- read_delim("data/Biotest/BTTAB99.txt", delim = "\t", col_names = FALSE)  
+BTAB00 <- read_delim("data/Biotest/BTTAB00.txt", delim = "\t", col_names = FALSE)  
+BTAB01 <- read_delim("data/Biotest/BTTAB01.txt", delim = "\t", col_names = FALSE)  
+
+BTAB_77_01 <- bind_rows(BTAB77, BTAB78, BTAB79, BTAB80, BTAB81, BTAB83,
+                        BTAB84, BTAB85, BTAB86, BTAB87, BTAB88, BTAB89,
+                        BTAB90, BTAB91, BTAB92, BTAB93, BTAB94, BTAB95,
+                        BTAB96, BTAB97, BTAB98, BTAB99, BTAB00, BTAB01)
+
+BTAB_77_01 <- BTAB_77_01 %>% 
+  separate(X1, 
+           sep = c(2,4,8,10,13,15,17,18,21,22,23,26,29,32,35,38,41,44,47,50,53,56,59,
+                   62,65,68,71,74,77), 
+           into = c("bl","area","species","red","stn_nr","catch_year","cohort","sex",
+                    "sample_nr","number_rows","growth_catch_year","final_length","X1",
+                    "X2","X3","X4","X5","X6","X7","X8","X9","X10","X11","X12","X13",
+                    "X14","X15","X16","X17")) %>% 
+  mutate_at(c("red","stn_nr","catch_year","cohort","sex",
+              "sample_nr","number_rows","final_length","X1",
+              "X2","X3","X4","X5","X6","X7","X8","X9","X10","X11","X12","X13",
+              "X14","X15","X16","X17"), as.numeric) 
+
+# Now create a long data frame and use the colnames that are in the .xls data
+colnames(BTAB_77_01)
+
+BTAB_77_01 <- BTAB_77_01 %>%
+  pivot_longer(col = c(13:29), names_to = "age_temp", values_to = "length_mm") %>% 
+  separate("age_temp", c("NA", "reading_no"), sep = 1) %>% 
+  mutate_at("reading_no", as.numeric) %>% 
+  drop_na(length_mm) %>% 
+  mutate(catch_year = ifelse(catch_year > 10, paste(19, catch_year, sep = ""), paste(200, catch_year, sep = ""))) %>%
+  mutate_at("catch_year", as.numeric) %>% 
+  mutate(cohort = ifelse(cohort > 10, paste(19, cohort, sep = ""), paste(200, cohort, sep = ""))) %>% 
+  mutate_at("cohort", as.numeric) %>% 
+  mutate(age = catch_year - cohort)
+
+# Create ID column
+BTAB_77_01 <- BTAB_77_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
+
+
 #**** Read in the .xls files =======================================================
+# 2002 is different...
+BTabbot2002 <- readxl::read_xls("data/Biotest/BTabbot2002.xls")
+BTabbot2003 <- readxl::read_xls("data/Biotest/BTabbot2003p.xls")
+BTabbot2004 <- readxl::read_xls("data/Biotest/BTabbot2004p.xls")
+BTabbot2005 <- readxl::read_xls("data/Biotest/BTabbot2005p.xls")
+
+# This is a KUL-file with multiple years, get back to it later after fixing these
+BTabbo_06_20_gear09 <- read.csv("data/Biotest/BTabbo_2006to2020_redsk09.csv", header = TRUE, sep = ";") %>% 
+  rename("År1" = "Tillväxt..mm.år.1")
+
+sort(colnames(BTabbot2002))
+sort(colnames(BTabbot2003))
+colnames(BTabbot2004)
+colnames(BTabbot2005)
+colnames(BTabbo_06_20_gear09)
+
+# Find names of columns that are not in both data sets
+colnames(BTabbot2005)[!colnames(BTabbot2005) %in% colnames(BTabbot2002)]
+colnames(BTabbot2002)[!colnames(BTabbot2002) %in% colnames(BTabbot2005)]
+
+BTabbo_06_20_gear09 <- BTabbo_06_20_gear09 %>%
+  rename("Fångstår" = "Fiskeår",
+         "Redskap" = "Redskap.kod",
+         "Löpnummer" = "Löpnr",
+         "Totallängd mm" = "Total.längd.mm")
+
+# Make all age columns numeric
+BTabbot2002 <- BTabbot2002 %>%
+  mutate(År13 = as.numeric(År13),
+         År14 = as.numeric(År14),
+         År15 = as.numeric(År15),
+         År16 = as.numeric(År16),
+         År17 = as.numeric(År17),
+         År18 = as.numeric(År18),
+         År19 = as.numeric(År19),
+         År20 = as.numeric(År20))
+
+BTabbot2003 <- BTabbot2003 %>%
+  mutate(År13 = as.numeric(År13),
+         År14 = as.numeric(År14),
+         År15 = as.numeric(År15),
+         År16 = as.numeric(År16),
+         År17 = as.numeric(År17),
+         År18 = as.numeric(År18),
+         År19 = as.numeric(År19),
+         År20 = as.numeric(År20))
+
+BTabbot2004 <- BTabbot2004 %>%
+  mutate(År13 = as.numeric(År13),
+         År14 = as.numeric(År14),
+         År15 = as.numeric(År15),
+         År16 = as.numeric(År16),
+         År17 = as.numeric(År17),
+         År18 = as.numeric(År18),
+         År19 = as.numeric(År19),
+         År20 = as.numeric(År20))
+
+BTabbot2005 <- BTabbot2005 %>%
+  mutate(År13 = as.numeric(År13),
+         År14 = as.numeric(År14),
+         År15 = as.numeric(År15),
+         År16 = as.numeric(År16),
+         År17 = as.numeric(År17),
+         År18 = as.numeric(År18),
+         År19 = as.numeric(År19),
+         År20 = as.numeric(År20))
+
+BTabbo_06_20_gear09 <- BTabbo_06_20_gear09 %>%
+  mutate(År13 = as.numeric(År13),
+         År14 = as.numeric(År14),
+         År15 = as.numeric(År15),
+         År16 = as.numeric(År16),
+         År17 = as.numeric(År17),
+         År18 = as.numeric(År18),
+         År19 = as.numeric(År19),
+         År20 = as.numeric(År20))
+
+# Need to change "Analysdatum" to numeric for 2005 & 2006
+BTabbot2005$Analysdatum <- as.numeric(BTabbot2005$Analysdatum)
+
+BTabbo_06_20_gear09$Kön <- as.numeric(BTabbo_06_20_gear09$Kön)
+BTabbo_06_20_gear09$Redskap <- as.numeric(BTabbo_06_20_gear09$Redskap)
+
+BTabbot2002$Månad <- as.numeric(BTabbot2002$Månad)
+BTabbot2002$Analysmetod <- as.numeric(BTabbot2002$Analysmetod)
+BTabbot2002$`Annan provtagning` <- as.numeric(BTabbot2002$`Annan provtagning`)
+BTabbot2005$`Annan provtagning` <- as.numeric(BTabbot2005$`Annan provtagning`)
+
+BTAB_02_20 <- bind_rows(BTabbo_06_20_gear09,
+                        BTabbot2002,
+                        BTabbot2003,
+                        BTabbot2004,
+                        BTabbot2005)
+
+# Go from wide to long data
+str(BTAB_02_20)
+
+# Columns 19-38 should be gathered
+glimpse(BTAB_02_20)
+colnames(BTAB_02_20)
+
+BTAB_02_20 <- BTAB_02_20 %>%
+  pivot_longer(col = c(19:38), names_to = "age_temp", values_to = "length_mm") %>% 
+  separate("age_temp", c("NA", "reading_no"), sep = 2) %>% 
+  mutate_at("reading_no", as.numeric) %>% 
+  drop_na(length_mm)
+
+# Rename variables
+BTAB_02_20 <- BTAB_02_20 %>% 
+  rename("catch_year" = "Fångstår",
+         "age" = "Ålder",
+         "area" = "Areakod",
+         "species" = "Art",
+         "gear" = "Redskap",
+         "stn_nr" = "Station",
+         "cohort" = "Födelseår",
+         "sex" = "Kön",
+         "sample_nr" = "Löpnummer",
+         "final_length" = "Totallängd mm")
+
+# Create ID column
+BTAB_02_20 <- BTAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+
+# Convert from operculum to length
+colnames(BTAB_02_20)
+
+# Now, if the years are between 02-05, length_mm is in fact not the actual length but the operculum lengths
+BTAB_02_20 %>% 
+  mutate(year_group = ifelse(catch_year < 2006 & catch_year > 2002, "operc.", "fish length")) %>% 
+  ggplot(aes(reading_no, length_mm, color = factor(catch_year))) + 
+  geom_jitter(alpha = 0.5) +
+  facet_wrap(~year_group, ncol = 1)
+
+BTAB_02_20 %>% 
+  mutate(year_group = ifelse(catch_year < 2006 & catch_year > 2002, "operc.", "fish length")) %>% 
+  filter(reading_no == 3) %>% 
+  ggplot(aes(reading_no, length_mm, color = factor(year_group))) + 
+  geom_jitter(alpha = 0.5) +
+  facet_wrap(~catch_year)
+
+# If there are more readings than the age, it means plus growth was measured. This means
+# that the final length is actually the radius, which we need when converting from operculum
+# length to fish length
+# Verify this:
+BTAB_02_20 %>%
+  group_by(ID) %>% 
+  mutate(n = n(),
+         plus_growth = ifelse(n > age, "Y", "N")) %>% 
+  ungroup() %>% 
+  filter(catch_year > 2002 & catch_year < 2006) %>% 
+  distinct(plus_growth)
+
+BTAB_02_20 %>% group_by(catch_year) %>% distinct(Magnifikation) %>% as.data.frame()
+BTAB_02_20 %>% group_by(catch_year) %>% distinct(is.na(length_mm))
+
+BTAB_02_20 <- BTAB_02_20 %>%
+  group_by(ID) %>% 
+  mutate(max_op_length = max(length_mm)) %>% # In contrast to the xls files where ALL lengths had to be converted, this is only for certain years. Hence I didn't bother to call lengths "op_length"
+  ungroup() %>% 
+  mutate(length_mm = ifelse(catch_year %in% c(2003, 2004, 2005),
+                            (15.56 + 18.485*length_mm*Magnifikation - 0.1004*(length_mm*Magnifikation)^2)*final_length /
+                              ((15.56 + 18.485*max_op_length*Magnifikation - 0.1004*(max_op_length*Magnifikation)^2)),
+                            length_mm))
+
+# Check it worked
+BTAB_02_20 %>% 
+  mutate(year_group = ifelse(catch_year < 2007, "02-06", "07-20")) %>% 
+  ggplot(aes(reading_no, length_mm, color = factor(catch_year))) + 
+  geom_jitter(alpha = 0.5, height = 0) +
+  facet_wrap(~year_group)
+
+BTAB_02_20 %>% 
+  ggplot(aes(reading_no, length_mm, color = factor(catch_year))) + 
+  geom_jitter(alpha = 0.5, height = 0)
+
+
+#**** Bind rows ====================================================================
+BTAB_02_20$source <- "xls"
+BTAB_77_01$source <- "txt" # for any other area we might want to xls KUL or xls G
+BT_77_20 <- bind_rows(BTAB_77_01, BTAB_02_20)
+
+# Change variable type so that we can join all data later
+BT_77_20$gear <- as.character(BT_77_20$gear)
+BT_77_20$sex <- as.character(BT_77_20$sex)
+BT_77_20$Analysdatum <- as.character(BT_77_20$Analysdatum)
+BT_77_20$`Somatisk vikt g` <- as.numeric(BT_77_20$`Somatisk vikt g`)
+BT_77_20$Somatisk.vikt <- as.integer(BT_77_20$Somatisk.vikt)
+BT_77_20$area <- "BT"
+BT_77_20$Sjukdomskod <- as.numeric(BT_77_20$Sjukdomskod)
+
+# Add in column that indicates if the length is from a + reading or not
+BT_77_20 <- BT_77_20 %>% 
+  mutate(age_ring = ifelse(reading_no > age, "N", "Y"))
+
+
+#**** Plot =========================================================================
+# Plot # of samples per catch year
+BT_77_20 %>% 
+  filter(age_ring == "Y") %>% 
+  group_by(catch_year, source) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(catch_year, n, fill = source)) + geom_bar(stat = "identity") 
+
+# Plot length-at-age over catch_year
+BT_77_20 %>% 
+  filter(age_ring == "Y") %>% 
+  ggplot(., aes(catch_year, length_mm, color = source)) + 
+  geom_point(alpha = 0.5) + 
+  stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) + 
+  facet_wrap(~factor(reading_no), scales = "free_y")
+
+# Plot length-at-age
+BT_77_20 %>% 
+  filter(age_ring == "Y") %>% 
+  ggplot(., aes(factor(reading_no), length_mm, color = catch_year)) + 
+  geom_point(alpha = 0.5) + 
+  stat_smooth(color = "black", method = "gam", formula = y ~ s(x, k = 3)) + 
+  scale_color_viridis()
+
 
 #** Brunskär =======================================================================
 #**** Read in the .txt files =======================================================
@@ -291,28 +572,28 @@ FBAB_77_01 <- FBAB_77_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep 
 
 #**** Read in the .xls files =======================================================
 # 2002 is different...
-FBabboa2002 <- readxl::read_xls("data/Finbo/FBabbot2002p.xls")
-FBabboa2003 <- readxl::read_xls("data/Finbo/FBabbot2003p.xls")
-FBabboa2004 <- readxl::read_xls("data/Finbo/FBabbot2004p.xls")
-FBabboa2005 <- readxl::read_xls("data/Finbo/FBabbot2005p.xls")
-FBabboa2006 <- readxl::read_xls("data/Finbo/FBabbot2006p.xls")
+FBabbo2002 <- readxl::read_xls("data/Finbo/FBabbot2002p.xls")
+FBabbo2003 <- readxl::read_xls("data/Finbo/FBabbot2003p.xls")
+FBabbo2004 <- readxl::read_xls("data/Finbo/FBabbot2004p.xls")
+FBabbo2005 <- readxl::read_xls("data/Finbo/FBabbot2005p.xls")
+FBabbo2006 <- readxl::read_xls("data/Finbo/FBabbot2006p.xls")
 
 # This is a KUL-file with multiple years, get back to it later after fixing these
 FBabbo_07_20_gear64_aug <- read.csv("data/Finbo/FBabbo_2007to2020_gear64aug.csv", header = TRUE, sep = ";") %>% 
   rename("År1" = "Tillväxt..mm.år.1")
 
-sort(colnames(FBabboa2002))
-sort(colnames(FBabboa2003))
-colnames(FBabboa2004)
-colnames(FBabboa2005)
-colnames(FBabboa2006)
+sort(colnames(FBabbo2002))
+sort(colnames(FBabbo2003))
+colnames(FBabbo2004)
+colnames(FBabbo2005)
+colnames(FBabbo2006)
 
 # Find names of columns that are not in both data sets
-colnames(FBabboa2005)[!colnames(FBabboa2005) %in% colnames(FBabboa2002)]
-colnames(FBabboa2002)[!colnames(FBabboa2002) %in% colnames(FBabboa2005)]
+colnames(FBabbo2005)[!colnames(FBabbo2005) %in% colnames(FBabbo2002)]
+colnames(FBabbo2002)[!colnames(FBabbo2002) %in% colnames(FBabbo2005)]
 
 # Need to change some column names
-FBabboa2002 <- FBabboa2002 %>%
+FBabbo2002 <- FBabbo2002 %>%
   mutate(Redskap = Redskkod) %>% 
   rename("År1" = "Year1",
          "År2" = "Year2",
@@ -344,7 +625,7 @@ FBabbo_07_20_gear64_aug <- FBabbo_07_20_gear64_aug %>%
          "Totallängd mm" = "Total.längd.mm")
 
 # Make all age columns numeric
-FBabboa2002 <- FBabboa2002 %>%
+FBabbo2002 <- FBabbo2002 %>%
   mutate(År13 = as.numeric(År13),
          År14 = as.numeric(År14),
          År15 = as.numeric(År15),
@@ -354,7 +635,7 @@ FBabboa2002 <- FBabboa2002 %>%
          År19 = as.numeric(År19),
          År20 = as.numeric(År20))
 
-FBabboa2003 <- FBabboa2003 %>%
+FBabbo2003 <- FBabbo2003 %>%
   mutate(År13 = as.numeric(År13),
          År14 = as.numeric(År14),
          År15 = as.numeric(År15),
@@ -364,7 +645,7 @@ FBabboa2003 <- FBabboa2003 %>%
          År19 = as.numeric(År19),
          År20 = as.numeric(År20))
 
-FBabboa2004 <- FBabboa2004 %>%
+FBabbo2004 <- FBabbo2004 %>%
   mutate(År13 = as.numeric(År13),
          År14 = as.numeric(År14),
          År15 = as.numeric(År15),
@@ -374,7 +655,7 @@ FBabboa2004 <- FBabboa2004 %>%
          År19 = as.numeric(År19),
          År20 = as.numeric(År20))
 
-FBabboa2005 <- FBabboa2005 %>%
+FBabbo2005 <- FBabbo2005 %>%
   mutate(År13 = as.numeric(År13),
          År14 = as.numeric(År14),
          År15 = as.numeric(År15),
@@ -384,7 +665,7 @@ FBabboa2005 <- FBabboa2005 %>%
          År19 = as.numeric(År19),
          År20 = as.numeric(År20))
 
-FBabboa2006 <- FBabboa2006 %>%
+FBabbo2006 <- FBabbo2006 %>%
   mutate(År13 = as.numeric(År13),
          År14 = as.numeric(År14),
          År15 = as.numeric(År15),
@@ -404,19 +685,19 @@ FBabbo_07_20_gear64_aug <- FBabbo_07_20_gear64_aug %>%
          År20 = as.numeric(År20))
 
 # Need to change "Analysdatum" to numeric for 2005 & 2006
-FBabboa2004$Analysdatum <- as.character(FBabboa2004$Analysdatum)
-FBabboa2005$Analysdatum <- as.character(FBabboa2005$Analysdatum)
-FBabboa2006$Analysdatum <- as.character(FBabboa2006$Analysdatum)
+FBabbo2004$Analysdatum <- as.character(FBabbo2004$Analysdatum)
+FBabbo2005$Analysdatum <- as.character(FBabbo2005$Analysdatum)
+FBabbo2006$Analysdatum <- as.character(FBabbo2006$Analysdatum)
 
 FBabbo_07_20_gear64_aug$Kön <- as.numeric(FBabbo_07_20_gear64_aug$Kön)
 FBabbo_07_20_gear64_aug$Redskap <- as.numeric(FBabbo_07_20_gear64_aug$Redskap)
 
 FBAB_02_20 <- bind_rows(FBabbo_07_20_gear64_aug,
-                        FBabboa2002,
-                        FBabboa2003,
-                        FBabboa2004,
-                        FBabboa2005,
-                        FBabboa2006)
+                        FBabbo2002,
+                        FBabbo2003,
+                        FBabbo2004,
+                        FBabbo2005,
+                        FBabbo2006)
 
 # Go from wide to long data
 str(FBAB_02_20)
@@ -466,6 +747,7 @@ FBAB_02_20 %>%
   mutate(n = n(),
          plus_growth = ifelse(n > age, "Y", "N")) %>% 
   ungroup() %>% 
+  filter(catch_year < 2008) %>% 
   distinct(plus_growth)
 
 FBAB_02_20 %>% group_by(catch_year) %>% distinct(Magnifikation) %>% as.data.frame()
@@ -1721,7 +2003,8 @@ VI_95_02 %>%
 
 
 # C. JOIN DATA =====================================================================
-d_full <- bind_rows(BS_91_06,
+d_full <- bind_rows(BT_77_20,
+                    BS_91_06,
                     FB_77_20,
                     SI_63_19,
                     TH_03_20,
@@ -1746,77 +2029,13 @@ d_full %>% group_by(area) %>% distinct(is.na(catch_year))
 #   rename("År1" = "Tillväxt..mm.år.1")
 
 d <- d_full %>%
+  mutate(keep = ifelse(area == "FB" & catch_year == 2002, "N", "Y")) %>% 
+  filter(keep == "Y") %>% 
   dplyr::select(length_mm, reading_no, age, age_ring, area, catch_year,
                 cohort, final_length, gear, ID, sex) %>% 
   rename(age_bc = reading_no,
          age_catch = age)
 
-
-# D. EXPLORE DATA ==================================================================
-
-## Make markdown script instead!!
-## REMAINING ISSUES: FINBO 2002 - the fish length estimates calculated using magnifikation 
-# does not seem correct, compared to the other years
-
-# MOVE THIS TO ANOTHER SCRIPT!
-# FIRST PLOT MAP WITH POINTS; LABELLED WITH UNIQUE YEARS AND n
-# FOR EACH AREA PLOT MEAN SIZE AT AGE
-# "VBGE" CURVES
-# ETC ETC
-
-# Plot sample size over cohort
-d %>% 
-  group_by(cohort, area) %>% 
-  summarise(n = n()) %>% 
-  ggplot(., aes(cohort, n, fill = area)) + geom_bar(stat = "identity") + 
-  NULL
-
-# Calculate time-slopes by age and area
-d %>%
-  group_by(age_bc, area) %>% 
-  mutate(length_mm_ct = length_mm - mean(length_mm)) %>% # center length at age for comparison across ages
-  ggplot(., aes(catch_year, length_mm_ct, color = area)) + 
-  geom_point(size = 0.1, alpha = 0.5) + 
-  facet_wrap(~age_bc) +
-  #stat_smooth(inherit.aes = FALSE, aes(catch_year, length_mm_ct)) +
-  NULL
-
-time_slopes_by_year_area <- d %>%
-  group_by(age_bc, area) %>% # center length at age for comparison across ages
-  mutate(length_mm_ct = length_mm / mean(length_mm)) %>% 
-  ungroup() %>% 
-  mutate(id = paste(age_bc, area, sep = ";")) %>%
-  split(.$id) %>%
-  purrr::map(~lm(length_mm_ct ~ catch_year, data = .x)) %>%
-  purrr::map_df(broom::tidy, .id = 'id') %>%
-  filter(term == 'catch_year') %>% 
-  separate(id, into = c("age_bc", "area"), sep = ";") %>% 
-  mutate(upr = estimate + std.error*2, lwr = estimate - std.error*2) %>% 
-  mutate(id = paste(age_bc, area, sep = ";"))
-
-time_slopes_by_year_area
-
-# Add sample size so that we can filter on that
-sample_size <- d %>% 
-  group_by(age_bc, area) %>% 
-  summarise(n = n()) %>% 
-  ungroup() %>% 
-  mutate(id = paste(age_bc, area, sep = ";")) %>% 
-  dplyr::select(n, id)
-
-# Join sample size
-time_slopes_by_year_area <- left_join(time_slopes_by_year_area, sample_size)
-
-# Plot effect sizes
-time_slopes_by_year_area %>%
-  filter(n > 30) %>% 
-  ggplot(., aes(reorder(age_bc, as.numeric(age_bc)), estimate, color = factor(area))) + 
-  geom_point(position = position_dodge(width = 0.4)) +
-  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
-                position = position_dodge(width = 0.4)) +
-  coord_flip() +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_color_viridis(discrete = TRUE) +
-  facet_wrap(~factor(area), scales = "free") + 
-  NULL
+write.csv(d, "data/for_analysis/dat.csv")
+write.csv(d_full, "data/all_dat.csv")
 
