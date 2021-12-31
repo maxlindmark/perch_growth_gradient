@@ -1,5 +1,5 @@
 ---
-title: "Clean, standardize and join back-calculated length-at-age of perch from gillnet-survey data from SLU databases"
+title: "Explore cleaned data of back-calculated length-at-age of perch from gillnet-survey data from SLU databases"
 author: "Max Lindmark, Anna Gårdmark"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
@@ -32,6 +32,15 @@ library(ggsidekick) # devtools::install_github("seananderson/ggsidekick")
 library(RColorBrewer)
 library(forcats)
 library(viridis)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(broom)
+library(rgdal)
+library(ggmap)
+library(sf)
+library(png)
+library(patchwork)
+library(ggridges)
 ```
 
 ## Read data
@@ -55,62 +64,184 @@ ggplot(d, aes(age_bc, length_mm, color = area)) +
 
 ggplot(d, aes(age_bc, length_mm, color = area)) +
   geom_jitter(height = 0, alpha = 0.2) + 
+  guides(color = "none") + 
   facet_wrap(~ area)
-
-t <- d %>% filter(length_mm < 150 & age_bc > 6) %>% droplevels()
-
-unique(t$area)
-unique(t$catch_year)
-
-data.frame(t)
 ```
 
+### Sample locations & length of time series
 
-### Sample size, locations, length of time series
+```{r sample locations, time series}
+# Map plot
+theme_set(theme_light(base_size = 12))
 
-```{r samples, location, time series}
+# Read UTM function
+LongLatToUTM <- function(x, y, zone){
+  xy <- data.frame(ID = 1:length(x), X = x, Y = y)
+  coordinates(xy) <- c("X", "Y")
+  proj4string(xy) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+  res <- spTransform(xy, CRS(paste("+proj=utm +zone=",zone," ellps=WGS84",sep='')))
+  return(as.data.frame(res))
+}
 
+# Specify ranges for big map
+ymin = 52; ymax = 67; xmin = 11; xmax = 25
 
+map_data <- rnaturalearth::ne_countries(
+  scale = "medium",
+  returnclass = "sf", continent = "europe")
 
+# Crop the polygon for plotting and efficiency:
+# st_bbox(map_data) # find the rough coordinates
+swe_coast <- suppressWarnings(suppressMessages(
+  st_crop(map_data,
+          c(xmin = xmin, ymin = ymin, xmax = xmax, ymax = ymax))))
+
+# Transform our map into UTM 33 coordinates, which is the equal-area projection we fit in:
+utm_zone33 <- 32633
+swe_coast_proj <- sf::st_transform(swe_coast, crs = utm_zone33)
+
+# Add point to areas
+sort(unique(d$area))
+
+df <- data.frame(Area = c("Brunskar (BS)", "Biotest (BT)", "Finbo (FB)", "Forsmark (FM)",
+                          "Holmon (HO)", "Kvadofjarden (JM)", "Musko (MU)", "Ranea (RA)",
+                          "Simpevarp 1 (SI_EK", "Simpevarp 2 (SI_HA", "Torhamn (TH)", "Vino (VN)"),
+                 lon = c(21.5, 18.1, 19.5, 18, 20.9, 16.8, 18.1, 22.3, 16.6, 16.7, 15.9, 16.9),
+                 lat = c(60, 60.4, 60.3, 60.5, 63.7, 58, 59, 65.9, 57.3, 57.4, 56.1, 57.5))
+
+# Add UTM coords
+utm_coords <- LongLatToUTM(df$lon, df$lat, zone = 33)
+df$X <- utm_coords$X
+df$Y <- utm_coords$Y
+
+# Crop the plot
+xmin2 <- 330000; xmax2 <- 959000; xrange <- xmax - xmin
+ymin2 <- 6000000; ymax2 <- 7300000; yrange <- ymax - ymin
+
+ggplot(swe_coast_proj) +
+  geom_sf() +
+  coord_sf(xlim = c(xmin2, xmax2), ylim = c(ymin2, ymax2)) +
+  geom_point(data = df, aes(x = X, y = Y, color = Area), size = 3) +
+  labs(x = "Longitude", y = "Latitude") +
+  scale_color_brewer(palette = "Paired") +
+  NULL
 ```
 
-```{r plot data}
+### Sample sizes
 
-# D. EXPLORE DATA ==================================================================
+```{r sample sizes by area, cohorts and individuals}
+# Average sample size by ID
+d %>% 
+  group_by(cohort, area, ID) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  ggplot(., aes(x = n, y = area, n, fill = area)) +
+  geom_density_ridges(stat = "binline", bins = 20, scale = 1, draw_baseline = FALSE, alpha = 0.8) +
+  scale_fill_brewer(palette = "Paired") +
+  guides(fill = "none") +
+  NULL
 
-## Make markdown script instead!!
-## REMAINING ISSUES: FINBO 2002 - the fish length estimates calculated using magnifikation 
-# does not seem correct, compared to the other years
+# Sample size by gear (some overlappning gears with different names)
+d %>% 
+  group_by(gear, area) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(factor(gear), n, fill = area)) +
+  geom_bar(stat = "identity") +
+  guides(fill = "none") +
+  facet_wrap(~area, scales = "free") +
+  scale_fill_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  NULL
 
-# MOVE THIS TO ANOTHER SCRIPT!
-# FIRST PLOT MAP WITH POINTS; LABELLED WITH UNIQUE YEARS AND n
-# FOR EACH AREA PLOT MEAN SIZE AT AGE
-# "VBGE" CURVES
-# ETC ETC
-
-# Plot sample size over cohort
+# Plot sample size by area and cohort (all length-at-ages)
 d %>% 
   group_by(cohort, area) %>% 
   summarise(n = n()) %>% 
-  ggplot(., aes(cohort, n, fill = area)) + geom_bar(stat = "identity") + 
+  ggplot(., aes(cohort, n, fill = area)) +
+  geom_bar(stat = "identity") + 
+  scale_fill_brewer(palette = "Paired") +
   NULL
 
 d %>% 
   group_by(cohort, area) %>% 
   summarise(n = n()) %>% 
-  ggplot(., aes(cohort, n, fill = area)) + geom_bar(stat = "identity") + 
+  ggplot(., aes(cohort, n, color = area)) +
+  geom_line() + 
+  scale_color_brewer(palette = "Paired") +
+  facet_wrap(~area) +
+  guides(color = "none") +
+  theme(axis.text.x = element_text(angle = 90)) +
   NULL
 
-# Calculate time-slopes by age and area
+# Plot sample size by area and catch_year
+d %>% 
+  group_by(catch_year, area) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(catch_year, n, fill = area)) +
+  geom_bar(stat = "identity") + 
+  scale_fill_brewer(palette = "Paired") +
+  NULL
+
+d %>% 
+  group_by(catch_year, area) %>% 
+  summarise(n = n()) %>% 
+  ggplot(., aes(catch_year, n, color = area)) +
+  geom_line() + 
+  scale_color_brewer(palette = "Paired") +
+  facet_wrap(~area) +
+  guides(color = "none") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  NULL
+```
+
+### Trends in length-at-age
+
+```{r length-at-age trends}
+# All ages
 d %>%
   group_by(age_bc, area) %>% 
-  mutate(length_mm_ct = length_mm - mean(length_mm)) %>% # center length at age for comparison across ages
-  ggplot(., aes(catch_year, length_mm_ct, color = area)) + 
+  ggplot(., aes(catch_year, length_mm, color = area)) + 
   geom_point(size = 0.1, alpha = 0.5) + 
   facet_wrap(~age_bc) +
-  #stat_smooth(inherit.aes = FALSE, aes(catch_year, length_mm_ct)) +
+  scale_color_brewer(palette = "Paired", name = "Area") +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "bottom") +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
   NULL
 
+# Filter common ages
+d %>%
+  group_by(age_bc, area) %>% 
+  filter(age_bc < 13) %>% 
+  ggplot(., aes(catch_year, length_mm, color = factor(age_bc))) + 
+  geom_point(size = 0.1, alpha = 0.5) + 
+  facet_wrap(~area, ncol = 6) +
+  scale_color_brewer(palette = "Paired", name = "Age") +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "bottom") +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  NULL
+
+# Age-area grid
+d %>%
+  group_by(age_bc, area) %>% 
+  filter(age_bc < 7) %>% 
+  ggplot(., aes(catch_year, length_mm, color = factor(age_bc))) + 
+  geom_point(size = 0.1, alpha = 0.5) + 
+  stat_smooth(aes(catch_year, length_mm, group = factor(age_bc)),
+              se = F, formula = y ~ s(x, k = 3), color = "grey30") +
+  facet_grid(age_bc~area) +
+  scale_color_brewer(palette = "Paired", name = "Age") +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "bottom") +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  NULL
+```
+
+### Time-slopes of length-at-age
+
+```{r time-slopes}
+# Calculate time-slopes by age and area
 time_slopes_by_year_area <- d %>%
   group_by(age_bc, area) %>% # center length at age for comparison across ages
   mutate(length_mm_ct = length_mm / mean(length_mm)) %>% 
@@ -144,10 +275,11 @@ time_slopes_by_year_area %>%
   geom_point(position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
                 position = position_dodge(width = 0.4)) +
-  coord_flip() +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_color_viridis(discrete = TRUE) +
+    scale_color_brewer(palette = "Paired") + 
   facet_wrap(~factor(area), scales = "free") + 
+  labs(x = "Age", y = "slope: size~time") +
+  theme(legend.position = "bottom")
   NULL
 
 time_slopes_by_year_area %>%
@@ -156,9 +288,9 @@ time_slopes_by_year_area %>%
   geom_point(position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
                 position = position_dodge(width = 0.4)) +
-  coord_flip() +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  scale_color_viridis(discrete = TRUE)
+  scale_color_brewer(palette = "Paired") + 
+  labs(x = "Age", y = "slope: size~time") +
   NULL
   
 time_slopes_by_year_area %>%
@@ -167,7 +299,7 @@ time_slopes_by_year_area %>%
   geom_point(position = position_dodge(width = 0.4)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   stat_smooth(method = "gam", formula = y ~ s(x, k = 3)) +
-  scale_color_viridis(discrete = TRUE) + 
+  labs(x = "Age", y = "slope: size~time")
   NULL  
 ```
 
