@@ -2071,8 +2071,6 @@ d_full %>%
   dplyr::select(ID, catch_year, sample_nr, area, sample_nr)
 
 d <- d_full %>%
-  mutate(keep = ifelse(area == "FB" & catch_year == 2002, "N", "Y")) %>% 
-  filter(keep == "Y") %>% 
   dplyr::select(length_mm, reading_no, age, age_ring, area, catch_year,
                 cohort, final_length, gear, ID, sex) %>% 
   rename(age_bc = reading_no,
@@ -2083,4 +2081,5 @@ unique(is.na(d))
 write.csv(d, "data/for_analysis/dat.csv")
 write.csv(d_full, "data/all_dat.csv")
 
-## REMAINING ISSUES: FINBO 2002 - the fish length estimates calculated using magnifikation 
+## REMAINING ISSUES
+# Gear - some have NA (incl. old texts). Add manually?
