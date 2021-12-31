@@ -94,7 +94,6 @@ BTAB_77_01 <- BTAB_77_01 %>%
 # Create ID column
 BTAB_77_01 <- BTAB_77_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
 
-
 #**** Read in the .xls files =======================================================
 # 2002 is different...
 BTabbot2002 <- readxl::read_xls("data/Biotest/BTabbot2002.xls")
@@ -215,7 +214,8 @@ BTAB_02_20 <- BTAB_02_20 %>%
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
          "final_length" = "Totallängd mm") %>% 
-  mutate(cohort = catch_year - age)
+  mutate(cohort = catch_year - age,
+         area = "BT")
 
 # Create ID column
 BTAB_02_20 <- BTAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -367,7 +367,6 @@ BSAB_91_01 <- BSAB_91_01 %>%
 
 # Create ID column
 BSAB_91_01 <- BSAB_91_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
-
 
 #**** Read in the .xls files =======================================================
 # This is not a t-file! (growth)
@@ -571,7 +570,6 @@ FBAB_77_01 <- FBAB_77_01 %>%
 # Create ID column
 FBAB_77_01 <- FBAB_77_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
 
-
 #**** Read in the .xls files =======================================================
 # 2002 is different...
 FBabbo2002 <- readxl::read_xls("data/Finbo/FBabbot2002p.xls")
@@ -618,7 +616,8 @@ FBabbo2002 <- FBabbo2002 %>%
          "År19" = "Year19",
          "År20" = "Year20",
          "Art" = "Fiskart kod",
-         "Totallängd mm" = "Längdmm")
+         "Totallängd mm" = "Längdmm",
+         "Löpnummer" = "Nummer")
 
 FBabbo_07_20_gear64_aug <- FBabbo_07_20_gear64_aug %>%
   rename("Fångstår" = "Fiskeår",
@@ -726,7 +725,8 @@ FBAB_02_20 <- FBAB_02_20 %>%
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
          "final_length" = "Totallängd mm") %>% 
-  mutate(cohort = catch_year - age)
+  mutate(cohort = catch_year - age,
+         area = "FB")
 
 # Create ID column
 FBAB_02_20 <- FBAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -914,13 +914,13 @@ FMabboa2006 <- readxl::read_xls("data/Forsmark/FMabbot2006p.xls") %>%
   rename("Fiskeår" = "Fångstår", "Redskap.kod" = "Redskap", "Total.längd.mm" = "Totallängd mm")
 
 FMabbo_02_and_17_20_gear09_aug <- read.csv("data/Forsmark/FMabbo_2002and2017to2020_gear09aug.csv", header = TRUE, sep = ";") %>% 
-  rename("År1" = "Tillväxt..mm.år.1")
+  rename("År1" = "Tillväxt..mm.år.1", "Löpnummer" = "Löpnr")
 
 FMabbo_02_03_and_07_20_gear64_aug <- read.csv("data/Forsmark/FMabbo_2002to2003and2007to2020_gear64aug.csv", header = TRUE, sep = ";") %>% 
-  rename("År1" = "Tillväxt..mm.år.1")
+  rename("År1" = "Tillväxt..mm.år.1", "Löpnummer" = "Löpnr")
 
 FMabbo_09_20_gear09_oct <- read.csv("data/Forsmark/FMabbo_2009to2020_gear09okt.csv", header = TRUE, sep = ";") %>% 
-  rename("År1" = "Tillväxt..mm.år.1")
+  rename("År1" = "Tillväxt..mm.år.1", "Löpnummer" = "Löpnr")
 
 FMabboa2004$Redskap.kod <- as.character(FMabboa2004$Redskap.kod)
 FMabboa2005$Redskap.kod <- as.character(FMabboa2005$Redskap.kod)
@@ -962,11 +962,10 @@ FM_02_20 <- FM_02_20 %>%
          "species" = "Art",
          "gear" = "Redskap.kod",
          "sex" = "Kön",
-         "sample_nr" = "Löpnr",
+         "sample_nr" = "Löpnummer",
          "final_length" = "Total.längd.mm") %>% 
   mutate(area = "FM",
-         cohort = catch_year - age) %>% 
-  mutate(cohort = catch_year - age)
+         cohort = catch_year - age)
 
 # Create ID column
 FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1002,6 +1001,17 @@ FM_02_20 %>%
 FM_02_20 %>% group_by(catch_year) %>% distinct(Magnifikation)
 FM_02_20 %>% group_by(catch_year) %>% distinct(is.na(length_mm))
 
+FM_02_20 %>%
+  group_by(reading_no, area) %>% 
+  filter(reading_no < 12 & area == "FM" & catch_year < 2008 & catch_year > 2000) %>% 
+  ggplot(., aes(catch_year, length_mm, color = factor(reading_no))) + 
+  geom_point(alpha = 0.5) + 
+  #facet_grid(Månad ~ gear) +
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "bottom") +
+  NULL
+
 FM_02_20 <- FM_02_20 %>%
   group_by(ID) %>% 
   mutate(max_op_length = max(length_mm)) %>% # In contrast to the xls files where ALL lengths had to be converted, this is only for certain years. Hence I didn't bother to call lengths "op_length"
@@ -1010,6 +1020,28 @@ FM_02_20 <- FM_02_20 %>%
                             (15.56 + 18.485*length_mm*Magnifikation - 0.1004*(length_mm*Magnifikation)^2)*final_length /
                               ((15.56 + 18.485*max_op_length*Magnifikation - 0.1004*(max_op_length*Magnifikation)^2)),
                             length_mm))
+
+FM_02_20 %>%
+  group_by(reading_no, area) %>% 
+  filter(reading_no < 12 & area == "FM") %>% #& catch_year < 2008 & catch_year > 2000) %>% 
+  ggplot(., aes(catch_year, length_mm, color = factor(reading_no))) + 
+  geom_point(alpha = 0.5) + 
+  #facet_grid(Månad ~ gear) +
+  scale_color_brewer(palette = "Paired") +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = "bottom") +
+  NULL
+
+# FM_02_20 %>%
+#   group_by(reading_no, area) %>% 
+#   filter(reading_no < 12 & area == "FM" & catch_year < 2008 & catch_year > 2000) %>% 
+#   ggplot(., aes(catch_year, length_mm, color = factor(reading_no))) + 
+#   geom_point(alpha = 0.5) + 
+#   facet_wrap(~area, ncol = 6) +
+#   scale_color_brewer(palette = "Paired") +
+#   theme(axis.text.x = element_text(angle = 90),
+#         legend.position = "bottom") +
+#   NULL
 
 
 #**** Bind rows ====================================================================
@@ -1510,14 +1542,13 @@ RA_90_01 <- RA_90_01 %>%
 # Create ID column
 RA_90_01 <- RA_90_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
 
-
 #**** Read in the .xls files =======================================================
 RAabboa2003 <- readxl::read_xls("data/Råneå/RAabbot2003p.xls")
 RAabboa2004 <- readxl::read_xls("data/Råneå/RAabbot2004p.xls")
 RAabboa2005 <- readxl::read_xls("data/Råneå/RAabbot2005p.xls")
 
 RAabboa_08_10 <- read.csv("data/Råneå/RAabbo_2008and2010.csv", header = TRUE, sep = ";") %>% 
-  rename("År1" = "Tillväxt..mm.år.1")
+  rename("År1" = "Tillväxt..mm.år.1", "Löpnummer" = "Löpnr")
 
 RAabboa2003$Kön <- as.character(RAabboa2003$Analysdatum)
 RAabboa2004$Kön <- as.character(RAabboa2004$Analysdatum)
@@ -1583,7 +1614,8 @@ RA_03_10 <- RA_03_10 %>%
          "sex" = "Kön",
          "sample_nr" = "Löpnummer",
          "final_length" = "Totallängdmm") %>% 
-  mutate(cohort = catch_year - age)
+  mutate(cohort = catch_year - age,
+         area = "RA")
 
 # Create ID column
 RA_03_10 <- RA_03_10 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
@@ -1633,8 +1665,6 @@ RA_03_10$gear <- as.character(RA_03_10$gear)
 RA_90_01$gear <- as.character(RA_90_01$gear)
 
 RA_90_10 <- bind_rows(RA_03_10, RA_90_01)
-
-RA_90_10$area <- "RA"
 
 RA_90_10$Analysdatum <- as.character(RA_90_10$Analysdatum)
 
@@ -1770,7 +1800,6 @@ SIAB_07_19_tot <- SIAB_07_19_tot %>%
 
 # Create ID column
 SIAB_07_19_tot <- SIAB_07_19_tot %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
-
 
 #**** Bind rows ====================================================================
 SIAB_07_19_tot$source <- "KUL"
@@ -1918,7 +1947,6 @@ VIAB_95_01 <- VIAB_95_01 %>%
 # Create ID column
 VIAB_95_01 <- VIAB_95_01 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_")) # add date + gear here as well
 
-
 #**** Read in the .xls files =======================================================
 VNAB_02 <- readxl::read_xls("data/Vinö/VNabbot2002.xls", sheet = 1)
 # The warning is due to a date
@@ -2035,6 +2063,13 @@ d_full <- bind_rows(BT_77_20,
                     TH_03_20,
                     VI_95_02)
 
+unique(d_full$ID)
+
+# Check if any of the columnes for the ID are NA (in which case, more than one fish per ID...)
+d_full %>%
+  filter(str_detect(ID, 'NA')) %>% 
+  dplyr::select(ID, catch_year, sample_nr, area, sample_nr)
+
 d <- d_full %>%
   mutate(keep = ifelse(area == "FB" & catch_year == 2002, "N", "Y")) %>% 
   filter(keep == "Y") %>% 
@@ -2048,3 +2083,4 @@ unique(is.na(d))
 write.csv(d, "data/for_analysis/dat.csv")
 write.csv(d_full, "data/all_dat.csv")
 
+## REMAINING ISSUES: FINBO 2002 - the fish length estimates calculated using magnifikation 
