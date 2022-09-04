@@ -1,0 +1,52 @@
+---
+title: "Conduct preliminary analyses"
+author: "Max Lindmark, Jan Ohlberger, Anna GÃ¥rdmark"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE, cache=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 12,
+  fig.asp = 0.618,
+  fig.align ='center'
+)
+```
+
+## Load libraries
+
+```{r libraries}
+# Load libraries (install first if needed)
+library(tidyverse); theme_set(theme_light(base_size = 12))
+library(tidylog)
+library(RColorBrewer)
+library(forcats)
+library(viridis)
+library(patchwork)
+```
+
+## Read data
+
+```{r read data}
+d <- readr::read_csv("https://raw.githubusercontent.com/maxlindmark/perch_growth_gradient/master/data/for_analysis/dat.csv") %>% dplyr::select(-...1)
+
+d
+glimpse(d)
+
+# Use only length-at-age by filtering on age_ring
+# Since there is growth after the age ring was formed (+ growth), 
+# we filter to get lengths that correspond to age rings only
+d <- d %>% filter(age_ring == "Y")
+
+# age_bc is back-calculated age
+# age_catch is age at catch
+```
+
+# Continue here...
