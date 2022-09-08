@@ -5,6 +5,7 @@ date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     df_print: paged
+    code_folding: hide
   pdf_document: default
 editor_options: 
   chunk_output_type: console
@@ -76,6 +77,8 @@ ggplot(d, aes(age_bc, length_mm, color = area)) +
 ### Sample locations & length of time series
 
 ```{r sample locations, time series}
+sf::sf_use_s2(FALSE)
+
 # Map plot
 theme_set(theme_light(base_size = 12))
 
@@ -146,7 +149,7 @@ d %>%
   guides(fill = "none") +
   NULL
 
-# Sample size by gear (some overlappning gears with different names)
+# Sample size by gear (some overlapping gears with different names)
 d %>% 
   group_by(gear, area) %>% 
   summarise(n = n()) %>% 
@@ -241,6 +244,7 @@ d %>%
         legend.position = "bottom") +
   guides(color = guide_legend(override.aes = list(size = 2))) +
   NULL
+
 ```
 
 ### Time-slopes of length-at-age
@@ -283,6 +287,20 @@ time_slopes_by_year_area %>%
   geom_hline(yintercept = 0, linetype = "dashed") +
     scale_color_brewer(palette = "Paired") + 
   facet_wrap(~factor(area), scales = "free") + 
+  labs(x = "Age", y = "slope: size~time") +
+  theme(legend.position = "bottom")
+  NULL
+
+time_slopes_by_year_area %>%
+  mutate(age_bc=as.numeric(age_bc)) %>%
+  filter(n > 30) %>% 
+  ggplot(., aes(area,estimate,color = factor(age_bc))) + 
+  geom_point(position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2,
+                position = position_dodge(width = 0.4)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+    scale_color_brewer(palette = "Paired") + 
+  facet_wrap(~factor(age_bc), scales = "free") + 
   labs(x = "Age", y = "slope: size~time") +
   theme(legend.position = "bottom")
   NULL
