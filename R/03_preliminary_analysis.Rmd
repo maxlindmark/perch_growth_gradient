@@ -1,16 +1,17 @@
 ---
 title: "Conduct preliminary analyses"
-author: "Max Lindmark, Jan Ohlberger, Anna GÃ¥rdmark"
+author: "Max Lindmark, Jan Ohlberger, Anna Gårdmark"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     df_print: paged
+    code_folding: hide
   pdf_document: default
 editor_options: 
   chunk_output_type: console
 ---
 
-```{r setup, include = FALSE, cache=FALSE}
+```{r setup,include=FALSE,cache=FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE,
   comment = "#>",
@@ -22,31 +23,203 @@ knitr::opts_chunk$set(
 
 ## Load libraries
 
-```{r libraries}
-# Load libraries (install first if needed)
-library(tidyverse); theme_set(theme_light(base_size = 12))
-library(tidylog)
-library(RColorBrewer)
-library(forcats)
-library(viridis)
-library(patchwork)
+```{r load libraries}
+
+pkgs<-c("here","tidyverse","tidymodels","forcats","viridis","patchwork","tibble", "minpack.lm","stringr","ggsidekick","conflicted") ## minpack.lm if using nlsLM()
+if(length(setdiff(pkgs,rownames(installed.packages())))>0){ install.packages(setdiff(pkgs,rownames(installed.packages())),dependencies=T)}
+invisible(lapply(pkgs,library,character.only=T))
+# devtools::install_github("seananderson/ggsidekick")
+tidymodels_prefer(quiet=TRUE)
+conflict_prefer("lag","dplyr")
+
 ```
 
-## Read data
+## Load functions
 
-```{r read data}
-d <- readr::read_csv("https://raw.githubusercontent.com/maxlindmark/perch_growth_gradient/master/data/for_analysis/dat.csv") %>% dplyr::select(-...1)
+```{r load functions}
 
-d
-glimpse(d)
+home <- here::here()
+fxn <- list.files(paste0(home,"/R/functions"))
+invisible(sapply(FUN=source,paste0(home,"/R/functions/",fxn)))
 
-# Use only length-at-age by filtering on age_ring
-# Since there is growth after the age ring was formed (+ growth), 
-# we filter to get lengths that correspond to age rings only
-d <- d %>% filter(age_ring == "Y")
-
-# age_bc is back-calculated age
-# age_catch is age at catch
 ```
 
-# Continue here...
+
+## Read and filter data
+
+```{r read and filter data}
+
+data <- readr::read_csv(paste0(home,"/data/for_analysis/dat.csv")) %>% dplyr::select(-...1)
+
+# use only length-at-age by filtering on age_ring
+d <- data %>% filter(age_ring == "Y")
+
+## minimum number of observations per area and cohort
+# d %>% group_by(area,cohort) %>% summarize(n=n()) %>% data.frame()
+d$area_cohort <- as.factor(paste(d$area,d$cohort))
+d <- d %>%
+  group_by(area_cohort) %>% 
+  filter(n()>100)
+
+## minimum number of observations per area, cohort, and age
+# d %>% group_by(area,cohort,age_bc) %>% summarize(n=n()) %>% data.frame()
+d$area_cohort_age <- as.factor(paste(d$area,d$cohort,d$age_bc))
+d <- d %>%
+  group_by(area_cohort_age) %>% 
+  filter(n()>10)
+
+## minimum number of years in a given area
+cnt <- d %>%                    
+  group_by(area) %>%
+  summarise(n=n_distinct(catch_year)) %>%
+  filter(n>=10)
+d <- d[d$area %in% cnt$area,]
+
+## longitude and latitude attributes for each area
+areas <- c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN")
+lat <- c(60,60.4,60.3,60.5,63.7,58,59,65.9,57.3,57.4,56.1,57.5)
+lon <- c(21.5,18.1,19.5,18,20.9,16.8,18.1,22.3,16.6,16.7,15.9,16.9)
+area_attr<-data.frame(cbind(area=areas,latitude=lat,longitude=lon))
+
+```
+
+## Von Bertalanffy growth parameters fit to individual back-calculated lengths
+
+```{r cohort growth analysis}
+
+## estimate individual growth parameters (needs functions VBGF, fit_nls, nls_out)
+out <- d %>% 
+  group_by(ID) %>% 
+  summarize(k=nls_out(fit_nls(length_mm,age_bc)))
+
+## add cohort and area attributes
+d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
+tab <- out %>% left_join(d_red,by="ID")
+
+## summarize growth coefficients by cohort and area
+VBG <- tab %>%
+  group_by(cohort,area) %>%
+  summarize(k_mean=mean(k,na.rm=T),k_median=median(k,na.rm=T),k_lower=quantile(k,prob=0.05,na.rm=T), k_upper=quantile(k,prob=0.95,na.rm=T))
+
+## plot growth coefficient over time to look for trends by area
+VBG %>%
+  ggplot(.,aes(cohort,k_median,group=area,color=area)) +
+  geom_ribbon(aes(ymin=k_lower,ymax=k_upper),fill="white",size=0.2) +
+  geom_line(size=1) +
+  scale_color_brewer(palette="Paired") +
+  theme_sleek() +
+  theme(axis.text.x = element_text(angle=90)) +
+  #guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Cohort",y="Growth coefficient") +
+  facet_wrap(~area) +
+  NULL
+
+## scale (z-score) growth coefficients
+VB <- VBG %>% 
+  pivot_wider(names_from=area,values_from=k_mean,id_cols=cohort) %>%
+  mutate_if(is.character,as.numeric) %>% 
+  data.frame() %>%
+  mutate(across(!cohort,scale)) %>%
+  pivot_longer(!cohort,names_to="area",values_to="k_mean") 
+
+## plot growth coefficients over time to look for coherence among areas
+VB %>%
+  ggplot(.,aes(cohort,k_mean,color=area,group=area)) +
+  geom_line(size=0.5) +
+  #stat_smooth(aes(cohort,k_mean,group=area),se=F,method="gam",formula=y~s(x,k=3)) +
+  scale_color_brewer(palette="Paired") +
+  theme_sleek() +
+  theme(axis.text.x = element_text(angle=90)) +
+  NULL
+
+## linear regression to get time-slopes by area
+k_slopes <- VB %>%
+  group_by(area) %>%
+  split(.$area) %>%
+  purrr::map(~lm(k_mean~cohort,data=.x)) %>%
+  purrr::map_df(broom::tidy,.id='area') %>%
+  filter(term=='cohort') %>% 
+  mutate(upr=estimate+std.error*2,lwr=estimate-std.error*2)
+
+## add longitude and latitude by area
+k_slopes <- k_slopes %>% 
+  left_join(area_attr,by="area") %>%
+  mutate_at(c('latitude','longitude'),as.numeric) %>%
+  mutate(LongLat=latitude*longitude)
+
+k_slopes %>%
+  ggplot(.,aes(latitude,estimate,color=area,group=area)) + ## latitude
+  # ggplot(.,aes(longitude,estimate,color=area,group=area)) + ## longitude
+  geom_point(size=3,position=position_dodge(width=0.2)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr),width=0.2,size=0.2,position=position_dodge(width=0.2)) +
+  scale_color_brewer(palette="Paired") +
+  geom_hline(yintercept=0,linetype="dashed",size=0.1) + 
+  theme_sleek() +
+  NULL
+
+```
+
+## Analysis of changes in growth increments over time
+
+```{r growth increments by age}
+
+## calculate growth increments 
+g <- d %>%
+  group_by(ID) %>%
+  mutate(growth=length_mm-lag(length_mm,default=0)) %>%
+  mutate(age_gr=paste0(age_bc-1,"-",age_bc))
+  
+## summarize growth increments by age, area and cohort
+gD <- g %>%
+  filter(age_bc<10) %>%
+  group_by(age_gr,area,cohort) %>%
+  summarize(growth_mean=mean(growth,na.rm=T),growth_median=median(growth,na.rm=T), growth_lower=quantile(growth,prob=0.05,na.rm=T),growth_upper=quantile(growth,prob=0.95,na.rm=T))
+
+## plot growth increments over time to look for trends across ages by area
+gD %>%
+  ggplot(.,aes(cohort,growth_mean,color=factor(age_gr))) + 
+  geom_point(size=0.1,alpha=0.5) + 
+  stat_smooth(aes(cohort,growth_mean,group=factor(age_gr))) +
+  scale_color_brewer(palette="Paired",name="Age") +
+  theme_sleek() +
+  theme(axis.text.x = element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Cohort",y="Mean individual growth increments") +
+  facet_grid(age_gr~area,scales="free_y") +
+  NULL
+
+## plot growth increments over time to look for coherence among areas by age
+gD %>%
+  ggplot(.,aes(cohort,growth_mean,color=factor(area))) + 
+  geom_line(size=0.1) + 
+  stat_smooth(aes(cohort,growth_mean,group=factor(area)),size=1,se=FALSE,method="gam", formula=y~s(x,k=4)) +
+  scale_color_brewer(palette="Paired",name="Area") +
+  theme_sleek() +
+  theme(axis.text.x = element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Cohort",y="Mean individual growth increments") +
+  facet_wrap(~age_gr,scales="free_y") +
+  NULL
+
+```
+
+## Exploratory analyses
+
+```{r exploratory analyses}
+
+## rename gear codes
+d$gear<-gsub("K0","",d$gear)
+
+## minimum number of observations per gear
+#  d %>% group_by(gear) %>% summarize(n=n()) %>% data.frame()
+d <- d %>%
+  group_by(gear) %>% 
+  filter(n()>2000)
+
+
+## mixed effects model of length-at-age 
+## random effect of year in area 
+## fixed effects of gear, year,  
+
+
+```
