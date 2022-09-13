@@ -1550,9 +1550,9 @@ RAabboa2005 <- readxl::read_xls("data/Råneå/RAabbot2005p.xls")
 RAabboa_08_10 <- read.csv("data/Råneå/RAabbo_2008and2010.csv", header = TRUE, sep = ";") %>% 
   rename("År1" = "Tillväxt..mm.år.1", "Löpnummer" = "Löpnr")
 
-RAabboa2003$Kön <- as.character(RAabboa2003$Analysdatum)
-RAabboa2004$Kön <- as.character(RAabboa2004$Analysdatum)
-RAabboa2005$Kön <- as.character(RAabboa2005$Analysdatum)
+RAabboa2003$Kön <- as.character(RAabboa2003$Kön)
+RAabboa2004$Kön <- as.character(RAabboa2004$Kön)
+RAabboa2005$Kön <- as.character(RAabboa2005$Kön)
 
 # Totallängdmm is different in the excel files, use a common name
 colnames(RAabboa2004)
@@ -2065,7 +2065,7 @@ d_full <- bind_rows(BT_77_20,
 
 unique(d_full$ID)
 
-# Check if any of the columnes for the ID are NA (in which case, more than one fish per ID...)
+# Check if any of the columns for the ID are NA (in which case, more than one fish per ID...)
 d_full %>%
   filter(str_detect(ID, 'NA')) %>% 
   dplyr::select(ID, catch_year, sample_nr, area, sample_nr)
@@ -2078,8 +2078,22 @@ d <- d_full %>%
 
 unique(is.na(d))
 
+# Check sex-column
+unique(d$sex)
+
+d <- d %>% mutate(sex2 = sex,
+                  sex2 = ifelse(sex %in% c("Hona", "0"), "female", "male"),
+                  sex2 = ifelse(is.na(sex), "-9", sex2),
+                  sex2 = ifelse(sex %in% c("", "Obestämd", "9"), "-9", sex2))
+
+ggplot(d, aes(factor(sex), factor(sex2))) + geom_point()
+
+d <- d %>% dplyr::select(-sex) %>% rename(sex = sex2)
+
+# Check gear-column
+unique(d$gear)
+
+d <- d %>% mutate(gear = ifelse(gear == "9.37", 9, gear))
+
 write.csv(d, "data/for_analysis/dat.csv")
 write.csv(d_full, "data/all_dat.csv")
-
-## REMAINING ISSUES
-# Gear - some have NA (incl. old texts). Add manually?
