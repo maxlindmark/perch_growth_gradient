@@ -1,5 +1,5 @@
 ---
-title: "Conduct preliminary analyses"
+title: "Preliminary analyses of perch growth"
 author: "Max Lindmark, Jan Ohlberger, Anna Gårdmark"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
@@ -13,30 +13,29 @@ editor_options:
 
 ```{r setup,include=FALSE,cache=FALSE}
 knitr::opts_chunk$set(
-  collapse = TRUE,
-  comment = "#>",
-  fig.width = 12,
-  fig.asp = 0.618,
+  collapse=TRUE,
+  comment="#>",
+  fig.width=12,
+  fig.asp=0.618,
   fig.align ='center'
 )
 ```
 
-## Load libraries
+```{r load libraries,message=FALSE,warning=FALSE,results="show"}
 
-```{r load libraries}
-
-pkgs<-c("here","tidyverse","tidymodels","forcats","viridis","patchwork","tibble", "minpack.lm","stringr","ggsidekick","conflicted") ## minpack.lm if using nlsLM()
+pkgs<-c("here","tidyverse","tidymodels","forcats","viridis","patchwork","tibble", "minpack.lm","stringr","ggsidekick","conflicted","ncdf4","reshape2","pracma","rnoaa","Hmisc","mgcv","RColorBrewer","nls.multstart","rTPC") 
+## minpack.lm needed if using nlsLM()
 if(length(setdiff(pkgs,rownames(installed.packages())))>0){ install.packages(setdiff(pkgs,rownames(installed.packages())),dependencies=T)}
 invisible(lapply(pkgs,library,character.only=T))
-# devtools::install_github("seananderson/ggsidekick")
+# devtools::install_github("seananderson/ggsidekick") ## not on CRAN 
+# remotes::install_github("padpadpadpad/rTPC") ## not on CRAN for this R version
 tidymodels_prefer(quiet=TRUE)
 conflict_prefer("lag","dplyr")
+conflict_prefer("summarize", "dplyr")
 
 ```
 
-## Load functions
-
-```{r load functions}
+```{r load functions,message=FALSE,warning=FALSE,results="show"}
 
 home <- here::here()
 fxn <- list.files(paste0(home,"/R/functions"))
@@ -44,136 +43,167 @@ invisible(sapply(FUN=source,paste0(home,"/R/functions/",fxn)))
 
 ```
 
+## Read and filter back-calculated length data
 
-## Read and filter data
+```{r read and filter data,message=FALSE,warning=FALSE,results="show"}
 
-```{r read and filter data}
+data <- readr::read_csv(paste0(home,"/data/for_analysis/dat.csv")) %>% select(-...1)
 
-data <- readr::read_csv(paste0(home,"/data/for_analysis/dat.csv")) %>% dplyr::select(-...1)
-
-# use only length-at-age by filtering on age_ring
+## use only length-at-age by filtering on age_ring
 d <- data %>% filter(age_ring == "Y")
 
+## sample size by area and cohort
+ns<- d %>% 
+  group_by(cohort,area) %>% 
+  summarise(n=n())
+
 ## minimum number of observations per area and cohort
-# d %>% group_by(area,cohort) %>% summarize(n=n()) %>% data.frame()
+## d %>% group_by(area,cohort) %>% summarize(n=n()) %>% data.frame()
 d$area_cohort <- as.factor(paste(d$area,d$cohort))
 d <- d %>%
   group_by(area_cohort) %>% 
   filter(n()>100)
 
 ## minimum number of observations per area, cohort, and age
-# d %>% group_by(area,cohort,age_bc) %>% summarize(n=n()) %>% data.frame()
+## d %>% group_by(area,cohort,age_bc) %>% summarize(n=n()) %>% data.frame()
 d$area_cohort_age <- as.factor(paste(d$area,d$cohort,d$age_bc))
 d <- d %>%
   group_by(area_cohort_age) %>% 
   filter(n()>10)
 
-## minimum number of years in a given area
-cnt <- d %>%                    
+## minimum number of observations per gear
+##  d %>% group_by(gear) %>% summarize(n=n()) %>% data.frame()
+# d$gear<-gsub("K0","",d$gear)
+# d <- d %>%
+#   group_by(gear) %>% 
+#   filter(n()>2000)
+
+## minimum number of cohorts in a given area
+cnt <- d %>%
   group_by(area) %>%
-  summarise(n=n_distinct(catch_year)) %>%
+  summarise(n=n_distinct(cohort)) %>%
   filter(n>=10)
 d <- d[d$area %in% cnt$area,]
 
+## plot cleaned data
+ggplot(d, aes(age_bc,length_mm,color=area)) +
+  geom_jitter(size=0.1,height=0,alpha=0.1) +
+  scale_x_continuous(breaks=seq(20)) +
+  theme_sleek() +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  labs(x="Age",y="Length (mm)") +
+  guides(color="none") + 
+  facet_wrap(~area,scale="free_x")
+
 ## longitude and latitude attributes for each area
-areas <- c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN")
+area <- c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN")
+nareas<-length(area)
 lat <- c(60,60.4,60.3,60.5,63.7,58,59,65.9,57.3,57.4,56.1,57.5)
 lon <- c(21.5,18.1,19.5,18,20.9,16.8,18.1,22.3,16.6,16.7,15.9,16.9)
-area_attr<-data.frame(cbind(area=areas,latitude=lat,longitude=lon))
+area_attr<-data.frame(cbind(area=area,lat=lat,lon=lon)) %>%
+  mutate_at(c("lat","lon"),as.numeric)
 
 ```
 
-## Von Bertalanffy growth parameters fit to individual back-calculated lengths
+## Load ERSST data
 
-```{r cohort growth analysis}
+```{r load sst data,message=FALSE,warning=FALSE,results="show"}
 
-## estimate individual growth parameters (needs functions VBGF, fit_nls, nls_out)
-out <- d %>% 
-  group_by(ID) %>% 
-  summarize(k=nls_out(fit_nls(length_mm,age_bc)))
+## SST based on ERSST data with relatively low spatial resolution (2x2 degrees)
+## need to cover at least 2x2 grid area with even numbers for longitude/latitude
+sst_areas<-NULL
+lat_ranges<-lon_ranges<-list() ## for testing only
+for(a in 1:nareas) {
+  lat_range <- c(2*floor(area_attr$lat[a]/2),2*floor(area_attr$lat[a]/2)+2)
+  lon_range <- c(2*floor(area_attr$lon[a]/2),2*floor(area_attr$lon[a]/2)+2)
+  sst_area <- load_ersst_data(years=c(1940,2022),data.dir=paste0(home,"/data"), ncfilename="sst.mnmean.nc",latrange=lat_range,lonrange=lon_range)
+  sst_area$area<-area_attr$area[a]
+  sst_areas <- bind_rows(sst_areas,sst_area)
+  lat_ranges[[a]] <- lat_range
+  lon_ranges[[a]] <- lon_range
+}
+latranges<-data.frame(matrix(unlist(lat_ranges),ncol=2,byrow=T))
+lonranges<-data.frame(matrix(unlist(lon_ranges),ncol=2,byrow=T))
 
-## add cohort and area attributes
-d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
-tab <- out %>% left_join(d_red,by="ID")
-
-## summarize growth coefficients by cohort and area
-VBG <- tab %>%
-  group_by(cohort,area) %>%
-  summarize(k_mean=mean(k,na.rm=T),k_median=median(k,na.rm=T),k_lower=quantile(k,prob=0.05,na.rm=T), k_upper=quantile(k,prob=0.95,na.rm=T))
-
-## plot growth coefficient over time to look for trends by area
-VBG %>%
-  ggplot(.,aes(cohort,k_median,group=area,color=area)) +
-  geom_ribbon(aes(ymin=k_lower,ymax=k_upper),fill="white",size=0.2) +
-  geom_line(size=1) +
-  scale_color_brewer(palette="Paired") +
+## plot SST by area in each month
+sst_areas %>%
+  ggplot(.,aes(x=year,y=meanSST,group=as.factor(month),color=as.factor(month))) +
+  geom_line() +
+  scale_color_brewer(palette="Set3") +
+  scale_x_continuous(breaks=seq(1940,2020,10)) +
   theme_sleek() +
-  theme(axis.text.x = element_text(angle=90)) +
-  #guides(color=guide_legend(override.aes=list(size=1))) +
-  labs(x="Cohort",y="Growth coefficient") +
-  facet_wrap(~area) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  labs(x="Year",y="Mean SST",title="Mean SST in each month by area") +
+  facet_wrap(~area,scale="free_y") +
   NULL
 
-## scale (z-score) growth coefficients
-VB <- VBG %>% 
-  pivot_wider(names_from=area,values_from=k_mean,id_cols=cohort) %>%
-  mutate_if(is.character,as.numeric) %>% 
-  data.frame() %>%
-  mutate(across(!cohort,scale)) %>%
-  pivot_longer(!cohort,names_to="area",values_to="k_mean") 
+tab <- sst_areas %>% 
+  group_by(area,month) %>%
+  summarize(meanSST=mean(meanSST,na.rm=T)) %>%
+  pivot_wider(names_from=area,values_from=meanSST,id_cols=month) 
 
-## plot growth coefficients over time to look for coherence among areas
-VB %>%
-  ggplot(.,aes(cohort,k_mean,color=area,group=area)) +
-  geom_line(size=0.5) +
-  #stat_smooth(aes(cohort,k_mean,group=area),se=F,method="gam",formula=y~s(x,k=3)) +
-  scale_color_brewer(palette="Paired") +
-  theme_sleek() +
-  theme(axis.text.x = element_text(angle=90)) +
-  NULL
+## define seasons 
+sst_areas <- sst_areas %>%
+  mutate(month=as.numeric(month)) %>%
+  mutate(season = case_when(
+      month %in%  c(6,7,8,9,10) ~ "warm",
+      month %in%  c(11,12,1,2,3,4,5)  ~ "cold")
+      )
 
-## linear regression to get time-slopes by area
-k_slopes <- VB %>%
-  group_by(area) %>%
-  split(.$area) %>%
-  purrr::map(~lm(k_mean~cohort,data=.x)) %>%
-  purrr::map_df(broom::tidy,.id='area') %>%
-  filter(term=='cohort') %>% 
-  mutate(upr=estimate+std.error*2,lwr=estimate-std.error*2)
+## mean annual or seasonal (filtered) SST by area
+sst_areas_annual <- sst_areas %>%
+  group_by(area,year) %>%
+  # filter(season=="warm") %>% ## need to filter for specific season!
+  summarize(meanSST=mean(meanSST,na.rm=T)) %>% 
+  filter(year<2022) ## incomplete 2022 data
 
-## add longitude and latitude by area
-k_slopes <- k_slopes %>% 
-  left_join(area_attr,by="area") %>%
-  mutate_at(c('latitude','longitude'),as.numeric) %>%
-  mutate(LongLat=latitude*longitude)
+## plot SST by area over time
+# sst_areas_annual %>%
+#   ggplot(.,aes(x=year,y=meanSST,group=area,color=area)) +
+#   geom_line() +
+#   scale_x_continuous(breaks=seq(1940,2020,10)) +
+#   theme_sleek() +
+#   theme(axis.text.x=element_text(angle=90)) +
+#   NULL
 
-k_slopes %>%
-  ggplot(.,aes(latitude,estimate,color=area,group=area)) + ## latitude
-  # ggplot(.,aes(longitude,estimate,color=area,group=area)) + ## longitude
-  geom_point(size=3,position=position_dodge(width=0.2)) +
-  geom_errorbar(aes(ymin=lwr,ymax=upr),width=0.2,size=0.2,position=position_dodge(width=0.2)) +
-  scale_color_brewer(palette="Paired") +
-  geom_hline(yintercept=0,linetype="dashed",size=0.1) + 
-  theme_sleek() +
-  NULL
+## calculate SST lags and averages of lags (first few years of life)
+sst_areas_lags <- sst_areas_annual %>% 
+  mutate(meanSST_yr1=lead(meanSST,1)) %>%
+  mutate(meanSST_yr2=lead(meanSST,2)) %>%
+  mutate(meanSST_yr3=lead(meanSST,3)) %>%  
+  rowwise() %>%
+  mutate(meanSST_yr01=mean(c(meanSST,meanSST_yr1),na.rm=T)) %>%
+  mutate(meanSST_yr012=mean(c(meanSST,meanSST_yr1,meanSST_yr2),na.rm=T)) %>%
+  mutate(meanSST_yr123=mean(c(meanSST_yr1,meanSST_yr2,meanSST_yr3),na.rm=T))
+
+## historical means by area 
+sst_areas_wide <- sst_areas_annual %>%
+  pivot_wider(names_from=area,values_from=meanSST,id_cols=year) # %>%
+  # filter(year<2000)
+
+sst_area_means <- data.frame(area=names(sst_areas_wide)[-1],mean_SST_allyrs=round(colMeans(sst_areas_wide[,-1]),2))
 
 ```
 
-## Analysis of changes in growth increments over time
+## Individual growth increments from age a to a+1 
 
-```{r growth increments by age}
+```{r growth increments,message=FALSE,warning=FALSE,results="show"}
 
 ## calculate growth increments 
 g <- d %>%
   group_by(ID) %>%
-  mutate(growth=length_mm-lag(length_mm,default=0)) %>%
-  mutate(age_gr=paste0(age_bc-1,"-",age_bc))
-  
+  mutate(growth=length_mm-lag(length_mm,default=0)) 
+
 ## summarize growth increments by age, area and cohort
 gD <- g %>%
-  filter(age_bc<10) %>%
-  group_by(age_gr,area,cohort) %>%
-  summarize(growth_mean=mean(growth,na.rm=T),growth_median=median(growth,na.rm=T), growth_lower=quantile(growth,prob=0.05,na.rm=T),growth_upper=quantile(growth,prob=0.95,na.rm=T))
+  filter(age_bc<7) %>%
+  group_by(age_bc,area,cohort) %>%
+  summarize(growth_mean=mean(growth,na.rm=T),growth_median=median(growth,na.rm=T), growth_lower=quantile(growth,prob=0.05,na.rm=T),growth_upper=quantile(growth,prob=0.95,na.rm=T)) %>%
+  mutate(age_gr=paste0(age_bc-1,"-",age_bc)) %>%
+  mutate(year=cohort+age_bc)
 
 ## plot growth increments over time to look for trends across ages by area
 gD %>%
@@ -182,9 +212,11 @@ gD %>%
   stat_smooth(aes(cohort,growth_mean,group=factor(age_gr))) +
   scale_color_brewer(palette="Paired",name="Age") +
   theme_sleek() +
-  theme(axis.text.x = element_text(angle=90)) +
-  guides(color=guide_legend(override.aes=list(size=1))) +
-  labs(x="Cohort",y="Mean individual growth increments") +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) + 
+  labs(x="Cohort",y="Mean individual growth increments",title="Growth increments over time by area and age") +
   facet_grid(age_gr~area,scales="free_y") +
   NULL
 
@@ -192,34 +224,210 @@ gD %>%
 gD %>%
   ggplot(.,aes(cohort,growth_mean,color=factor(area))) + 
   geom_line(size=0.1) + 
-  stat_smooth(aes(cohort,growth_mean,group=factor(area)),size=1,se=FALSE,method="gam", formula=y~s(x,k=4)) +
+  stat_smooth(aes(cohort,growth_mean,group=factor(area)),size=0.8,se=FALSE,method="gam", formula=y~s(x,k=4)) +
   scale_color_brewer(palette="Paired",name="Area") +
   theme_sleek() +
-  theme(axis.text.x = element_text(angle=90)) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
   guides(color=guide_legend(override.aes=list(size=1))) +
-  labs(x="Cohort",y="Mean individual growth increments") +
+  labs(x="Cohort",y="Mean individual growth increments",title="Growth increments over time in each area") +
   facet_wrap(~age_gr,scales="free_y") +
+  NULL
+
+## plot growth increments by age as a function of mean SST
+# gD %>%
+#   left_join(sst_areas_annual, by=c("area","year")) %>%
+#   filter(age_bc<7) %>%
+#   ggplot(.,aes(meanSST,growth_mean,color=factor(age_gr))) + 
+#   geom_line(size=0.1) + 
+#   stat_smooth(aes(meanSST,growth_mean,group=factor(age_gr)),size=0.8,se=FALSE, method="gam", formula=y~s(x,k=4)) +
+#   scale_color_brewer(palette="Paired") +
+#   theme_sleek() +
+#   theme(plot.title=element_text(size=15,face="bold")) +
+#   theme(axis.text.x=element_text(angle=0)) +
+#   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+#   guides(color=guide_legend(override.aes=list(size=1))) +
+#   labs(x="mean SST",y="Mean individual growth increments",title="Growth increments by age as a function of mean SST in each area") +
+#   facet_wrap(~area,scales="free") +
+#   NULL
+
+```
+
+## Individual von Bertalanffy growth parameter estimates
+
+```{r growth rate coefficients,message=FALSE,warning=FALSE,results="show"}
+
+## estimate individual growth parameters (need functions VBGF, nls_out, fit_nls)
+IVBG <- d %>% 
+  group_by(ID) %>% 
+  summarize(k=nls_out(fit_nls(length_mm,age_bc))) 
+
+# summarize(k=nls_out(fit_nls_multstart(length_mm,age_bc))) ## not running yet
+
+## add cohort and area attributes
+d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
+IVBG <- IVBG %>% left_join(d_red,by="ID")
+
+## summarize growth coefficients by cohort and area
+VBG <- IVBG %>%
+  group_by(cohort,area) %>%
+  summarize(k_mean=mean(k,na.rm=T),k_median=quantile(k,prob=0.5,na.rm=T))
+
+## add number of samples
+samplesize <- d %>%  group_by(cohort,area) %>%  summarise(n=n())
+VBG <- VBG %>% left_join(samplesize,by=c("cohort","area"))
+
+## add SST by year/area and order by overall mean SST across years 
+VBG <- VBG %>%
+  drop_na() %>%
+  rename(year=cohort) %>%
+  left_join(sst_areas_lags,by=c("area","year")) %>%
+  left_join(sst_area_means,by=c("area")) %>%
+  arrange(area,year) %>%
+  ungroup() %>%
+  mutate(area=fct_reorder(area,as.integer(mean_SST_allyrs)))
+
+## scale (z-score) growth coefficients within each area
+zscore <- function(x){ (x-mean(x,na.rm=TRUE))/sd(x,na.rm=TRUE) }
+VBGz <- VBG %>%
+  group_by(area) %>%
+  mutate(k_mean=zscore(k_mean),k_median=zscore(k_median)) %>%
+  ungroup() %>%
+  mutate(area=fct_reorder(area,as.integer(mean_SST_allyrs)))
+
+## colors for plots
+colors<-rev(colorRampPalette(brewer.pal(name="RdYlBu",n=10))(nareas))
+
+## plot scaled growth coefficients over time to look for coherence among areas
+VBGz %>%
+  ggplot(.,aes(year,k_mean,color=area,group=area)) +
+  geom_line(size=0.6) +
+  scale_color_brewer(palette="Paired") +
+  theme_sleek() +
+  theme(axis.text.x=element_text(angle=0)) +
+  labs(x="Cohort",y="Scaled growth rate coefficient") +
+  NULL
+
+## plot median growth coefficients by year and area against mean SST
+VBG %>%
+  ggplot(.,aes(meanSST,k_median,color=area)) + 
+  geom_point(size=1) + ## aes(size=n)
+  stat_smooth(aes(meanSST,k_median,group=area),size=0.5,se=F,method="gam", formula=y~s(x,k=5)) +
+  scale_color_manual(values=colors,name="Area") + ## (mean SST)
+  theme_sleek() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Temperature (C)",y="Growth rate coefficient", title="Median annual growth coefficient vs. mean annual SST in each area") +
+  facet_wrap(~area,scales="free") +
   NULL
 
 ```
 
-## Exploratory analyses
+## Correlation between growth coefficients and temperature by area
 
-```{r exploratory analyses}
+```{r growth-SST correlation,message=FALSE,warning=FALSE,results="show"}
 
-## rename gear codes
-d$gear<-gsub("K0","",d$gear)
+## calculate correlations between mean annual growth coefficients and SST 
+df_corr <- VBGz %>% 
+  select(area,k_median,meanSST) %>%
+  data.frame() %>%
+  group_by(area) %>% 
+  summarize(corr=cor(k_median,meanSST,use="pairwise.complete.obs")) %>%
+  left_join(sst_area_means,by="area") %>%
+  rename(mean_SST=mean_SST_allyrs)
 
-## minimum number of observations per gear
-#  d %>% group_by(gear) %>% summarize(n=n()) %>% data.frame()
-d <- d %>%
-  group_by(gear) %>% 
-  filter(n()>2000)
+## plot correlation as a function of the overall average SST by area
+# df_corr %>%
+#   ggplot(.,aes(mean_SST,corr,color=area)) +
+#   geom_point(size=3) +
+#   geom_smooth(method='lm',formula=y~as.numeric(x)) +
+#   scale_color_brewer(palette="Paired") +
+#   theme_sleek() +
+#   NULL
 
+## gamm with SST effect and accounting for spatial correlation 
+gamm_fit <- gamm(corr~s(mean_SST,k=3),data=df_corr,corr=corSpatial(form=~lon+lat,type='gaussian'))
+plot(gamm_fit$gam,xlab="Long-term mean SST by area",ylab="Correlation growth rate coefficient vs SST")
+abline(h=0,lwd=0.2)
+points(df_corr$mean_SST,df_corr$corr,pch=21,lwd=0.1,bg="gray50")
+text(df_corr$mean_SST,df_corr$corr,labels=df_corr$area,cex=0.5,pos=1)
 
-## mixed effects model of length-at-age 
-## random effect of year in area 
-## fixed effects of gear, year,  
+## populations in 'colder' areas tend to respond positively to warming
+## populations in 'warmer' areas tend to respond negatively to warming
 
+## but we need higher resolution SST data for better area specific SSTs
+## some areas are so close that they get the same 2x2 grid and hence SST
+
+## Also, growth-temperature relationships are non-linear (see next section)
+
+```
+
+## Non-linear Sharpe-Schoolfield model fit to growth coefficients
+
+```{r sharpe-schoolfield model,message=FALSE,warning=FALSE,results="show"}
+
+model <- 'sharpeschoolhigh_1981'
+
+## get starting values on full dataset for Sharpe-Schoolfield model
+dat <- VBG %>%
+  select(k_median,meanSST) %>%
+  rename(rate=k_median) %>%
+  rename(temp=meanSST) %>%
+  filter(!is.na(rate))
+lower <- get_lower_lims(dat$temp,dat$rate,model_name=model)
+upper <- get_upper_lims(dat$temp,dat$rate,model_name=model)
+start <- get_start_vals(dat$temp,dat$rate,model_name=model)
+  
+## Sharpe-Schoolfield model fit to data for each area
+preds <- NULL
+for(a in 1:nareas) {
+  ## get data
+  dat <- VBG[VBG$area==area[a],] %>% 
+    select(k_median,meanSST,area) %>% 
+    rename(rate=k_median) %>%
+    rename(temp=meanSST) %>%
+    filter(!is.na(rate))
+  ## fit model
+  fit <- nls_multstart(
+    rate~sharpeschoolhigh_1981(temp=temp,r_tref,e,eh,th,tref=8),
+    data=dat,
+    iter=c(3,3,3,3),
+    start_lower=start*0.5,
+    start_upper=start*2,
+    lower=lower,
+    upper=upper,
+    supp_errors='Y'
+    )
+  ## make predictions on new data
+  new_data <- data.frame(temp=seq(min(dat$temp),max(dat$temp),length.out=100))
+  pred <- augment(fit,newdata=new_data) %>%
+    mutate(area=area[a])
+  ## add to general data frame
+  preds <- data.frame(rbind(preds,pred))
+}
+
+## add mean SST across years by area for reordering
+pred_nls_fits <- preds %>%
+  left_join(sst_area_means,by=c("area")) %>%
+  mutate(area=fct_reorder(area,as.integer(mean_SST_allyrs)))
+
+## plot scaled median growth coefficients by year and area against mean SST
+pred_nls_fits %>%
+  ggplot(.,aes(temp,.fitted,color=factor(area))) + 
+  geom_point(aes(meanSST,k_median,color=factor(area)),VBG,size=0.6) + ## data
+  geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
+  scale_color_manual(values=colors,name="Area") +
+  theme_sleek() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  scale_x_continuous(breaks=seq(-5,20,1)) +
+  labs(x="Temperature (C)",y="Growth rate coefficient", title="Median annual growth coefficient vs mean annual SST by area with Sharpe-Schoolfield fit") +
+  # facet_wrap(~area,scale="free_y") +
+  NULL
 
 ```
