@@ -25,7 +25,7 @@ knitr::opts_chunk$set(
 
 ```{r libraries}
 # Load libraries (install first if needed)
-library(tidyverse); theme_set(theme_light(base_size = 12))
+library(tidyverse)
 library(tidylog)
 library(rnaturalearth)
 library(rnaturalearthdata)
@@ -42,6 +42,8 @@ library(sf)
 library(png)
 library(patchwork)
 library(ggridges)
+
+theme_set(theme_sleek())
 ```
 
 ## Read data
@@ -147,6 +149,18 @@ d %>%
   geom_density_ridges(stat = "binline", bins = 20, scale = 1, draw_baseline = FALSE, alpha = 0.8) +
   scale_fill_brewer(palette = "Paired") +
   guides(fill = "none") +
+  NULL
+
+# Average sample size by area, cohort and age
+d %>% 
+  group_by(cohort, area, age_bc) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  ggplot(aes(cohort, age_bc,color = n, fill = n)) +
+  facet_wrap(~area) +
+  geom_tile(shape = 21, alpha = 0.8) +
+  scale_color_viridis() +
+  scale_fill_viridis() +
   NULL
 
 # Sample size by gear (some overlapping gears with different names)
