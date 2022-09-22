@@ -110,6 +110,9 @@ area_attr<-data.frame(cbind(area=area,lat=lat,lon=lon)) %>%
 
 ```{r load sst data,message=FALSE,warning=FALSE,results="show"}
 
+## download ERSST data - only run when update needed
+# sst_dat_all <- get_ersst_data(years=seq(1940,2022),data.dir=paste0(home,"/data"), latrange=c(55,66),lonrange=c(15,23))
+
 ## SST based on ERSST data with relatively low spatial resolution (2x2 degrees)
 ## need to cover at least 2x2 grid area with even numbers for longitude/latitude
 sst_areas<-NULL
