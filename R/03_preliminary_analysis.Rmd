@@ -1,6 +1,6 @@
 ---
 title: "Preliminary analyses of perch growth"
-author: "Max Lindmark, Jan Ohlberger, Anna Gårdmark"
+author: "Jan Ohlberger, Max Lindmark, Anna Gårdmark"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
