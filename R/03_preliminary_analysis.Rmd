@@ -110,6 +110,9 @@ area_attr<-data.frame(cbind(area=area,lat=lat,lon=lon)) %>%
 
 ```{r load sst data,message=FALSE,warning=FALSE,results="show"}
 
+## download ERSST data - only run when update needed
+# sst_dat_all <- get_ersst_data(years=seq(1940,2022),data.dir=paste0(home,"/data"), latrange=c(55,66),lonrange=c(15,23))
+
 ## SST based on ERSST data with relatively low spatial resolution (2x2 degrees)
 ## need to cover at least 2x2 grid area with even numbers for longitude/latitude
 sst_areas<-NULL
@@ -270,16 +273,18 @@ gD %>%
 
 ```
 
-## Individual von Bertalanffy growth parameter estimates
+## Individual von Bertalanffy or modified Gompertz growth parameter estimates
 
 ```{r growth rate coefficients,message=FALSE,warning=FALSE,results="show"}
 
-## estimate individual growth parameters (need functions VBGF, nls_out, fit_nls)
+## get individual growth parameters (functions: VBGF/Gompertz,nls_out,fit_nls)
 IVBG <- d %>% 
   group_by(ID) %>% 
-  summarize(k=nls_out(fit_nls(length_mm,age_bc))) 
+  summarize(k=nls_out(fit_nls(length_mm,age_bc,min_nage=3,model="VBGF")))
+  ## model can be 'VBGF' (default) or 'Gompertz'  
 
-# summarize(k=nls_out(fit_nls_multstart(length_mm,age_bc))) ## not running yet
+## using the fit_nls_multstart() instead works but takes a long time to fit:
+# summarize(k=nls_out(fit_nls_multstart(length_mm,age_bc,min_nage=3,model="VBGF")))
 
 ## add cohort and area attributes
 d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
@@ -289,6 +294,8 @@ IVBG <- IVBG %>% left_join(d_red,by="ID")
 VBG <- IVBG %>%
   group_by(cohort,area) %>%
   summarize(k_mean=mean(k,na.rm=T),k_median=quantile(k,prob=0.5,na.rm=T))
+
+# test<-unique(VBG$cohort[VBG$area=="TH"]);min(test);max(test)
 
 ## add number of samples
 samplesize <- d %>%  group_by(cohort,area) %>%  summarise(n=n())
