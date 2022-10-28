@@ -1,0 +1,392 @@
+---
+title: "Preliminary analyses of perch growth"
+author: "Max Lindmark, Jan Ohlberger, Anna Gardmark"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+  pdf_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup,include=FALSE,cache=FALSE}
+knitr::opts_chunk$set(
+  collapse=TRUE,
+  comment="#>",
+  fig.align ='center'
+)
+```
+
+```{r load libraries,message=FALSE,warning=FALSE,results="show"}
+library(tidyverse)
+library(tidylog)
+library(brms)
+library(tidybayes)
+library(modelr)
+library(viridis)
+library(purrr)
+library(ggsidekick)
+theme_set(theme_sleek())
+
+# For parallel processing
+options(mc.cores = parallel::detectCores()) 
+
+# Continuous colors
+options(ggplot2.continuous.colour = "viridis")
+
+# Discrete colors
+scale_colour_discrete <- function(...) {
+  scale_colour_brewer(palette = "Paired")
+}
+
+scale_fill_discrete <- function(...) {
+  scale_fill_brewer(palette = "Paired")
+}
+```
+
+## Read and filter back-calculated length data
+```{r read and filter data,message=FALSE,warning=FALSE,results="show"}
+d <- readr::read_csv("data/for_analysis/dat.csv") %>%
+  select(-...1) %>% 
+  mutate(length_cm = length_mm / 10)
+
+# qwraps2::lazyload_cache_dir(path = "R/03b_preliminary_analysis_cache/html")
+```
+
+## Plot data
+```{r}
+ggplot(d, aes(age_bc, length_cm, color = cohort)) +
+  geom_point(size = 1/2, alpha = 1/4) + 
+  facet_wrap(~area)
+
+# Filter cohorts with minimum 5 IDs per cohort
+d <- d %>% 
+  group_by(cohort, area) %>% 
+  mutate(n_id = length(unique(ID))) %>% 
+  filter(n_id >= 10) %>% 
+  ungroup()
+```
+
+## Fit von Bertalanffy `brms` models for each cohort with parameters varying among individuals for each area
+First run some prior predictive checks to make sure priors are reasonable
+```{r vbge prior check}
+hist(rnorm(100000, mean = 40, sd = 20))
+hist(rnorm(100000, mean = -0.5, sd = 1))
+hist(rnorm(100000, mean = 0.2, sd = 1)) 
+
+m0 <- brm(
+  bf(length_cm ~ Linf*(1-exp(-K*(age_bc-t0))),
+     Linf ~ 1, t0 ~ 1, K ~ 1, nl = TRUE),
+  data = d, family = gaussian(),
+  prior = c(prior(normal(45, 20), nlpar = "Linf"),
+            prior(normal(-0.5, 1), nlpar = "t0"),
+            prior(normal(0.2, 0.1), nlpar = "K")),
+            sample_prior = "only", 
+  iter = 4000, thin = 1, cores = 3, chains = 3, seed = 9)
+
+pp <- conditional_effects(m0, method = "posterior_predict")
+
+plot(pp, plot = FALSE)[[1]] +
+  labs(x = "Age [yrs]", y = "length [cm]") +
+  geom_point(data = d, aes(age_bc, length_cm), inherit.aes = FALSE)
+# 
+# # Global model
+# p1 <- ggplot(d, aes(age_bc, length_cm)) + 
+#   geom_jitter(height = 0, width = 0.5, alpha = 0.2, shape = 21, fill = "black", color = "white") + 
+#   coord_cartesian(expand = 0, ylim = c(0, 55), xlim = c(0, 18))
+
+# Sub sample for faster fitting...
+# d_sub <- sample_n(d, 5000)
+# 
+# p2 <- ggplot(d_sub, aes(age_bc, length_cm)) + 
+#   geom_jitter(height = 0, width = 0.5, alpha = 0.2, shape = 21, fill = "black", color = "white") +
+#   coord_cartesian(expand = 0, ylim = c(0, 55), xlim = c(0, 18))
+# 
+# p1 / p2
+# 
+# m1 <- brm(
+#   bf(length_cm ~ Linf*(1-exp(-K*(age_bc-t0))),
+#      Linf ~ 1, t0 ~ 1, K ~ 1, nl = TRUE),
+#   data = d_sub, family = student(),
+#   prior = c(prior(normal(40, 20), nlpar = "Linf"),
+#             prior(normal(-0.5, 0.5), nlpar = "t0"),
+#             prior(normal(0.2, 0.1), nlpar = "K")),
+#   iter = 3000, thin = 1, cores = 3, chains = 3)
+# 
+# summary(m1)
+# 
+# rhat(m1)
+# 
+# plot(m1)
+# 
+# pp <- conditional_effects(m1, method = "posterior_predict")
+# 
+# plot(pp, plot = FALSE)[[1]] +
+#   labs(x = "Age [yrs]", y = "length [cm]") +
+#   geom_point(data = d_sub, aes(age_bc, length_cm), inherit.aes = FALSE)
+```
+
+Test a cohort-specific vbge model to the area with least years to start with
+
+```{r vbge test}
+d %>%
+  group_by(area) %>%
+  summarise(n_cohorts = length(unique(cohort))) %>%
+  arrange(n_cohorts)
+
+d_vin <- d %>% filter(area == "VN")
+
+# Plot VN area
+ggplot(d_vin, aes(age_bc, length_cm, color = ID)) +
+  geom_point(size = 1/2, alpha = 1/4) + 
+  facet_wrap(~cohort) + 
+  guides(color = "none") + 
+  scale_color_viridis(discrete = TRUE)
+
+# Fit model with parameters varying by ID. First filter a single year to test speed
+start_time <- Sys.time()
+mtest <- 
+  brm(
+    bf(length_cm ~ Linf*(1-exp(-K*(age_bc-t0))),
+       t0 ~ 1 + (1|ID),
+       K ~ 1 + (1|ID),  
+       Linf ~ 1 + (1|ID),
+       nl = TRUE), 
+    data = filter(d_vin, cohort == 1995),
+    family = gaussian(),
+    prior = c(prior(normal(45, 20), nlpar = "Linf"),
+              prior(normal(0.5, 1), nlpar = "t0"),
+              prior(normal(0.2, 0.1), nlpar = "K")),
+    iter = 4000,
+    thin = 1,
+    cores = 3,
+    chains = 3,
+    seed = 9)
+Sys.time() - start_time
+  
+rhat(mtest)
+plot(mtest)
+summary(mtest)
+```
+
+```{plot test model}
+# Plot predictions by ID
+d_vin %>%
+  filter(cohort == 1995) %>% 
+  add_predicted_draws(mtest) %>%
+  ggplot(aes(x = age_bc, y = length_cm, color = ID, fill = ID)) +
+  stat_lineribbon(aes(y = .prediction, group = ID), .width = .95, alpha = 0.1, size = 0.5) +
+  stat_lineribbon(aes(y = .prediction, group = ID), .width = 0, alpha = 0.5, size = 0.5) +
+  geom_jitter(data = filter(d_vin, cohort == 1995),
+              width = 0.3, height = 0, size = 2) +
+  scale_fill_viridis(discrete = TRUE) +
+  scale_color_viridis(discrete = TRUE) +
+  labs(y = "Length [cm]", x = "Age [yrs]", fill = "ID", colour = "ID") +
+  guides(color = "none", fill = "none") + 
+  NULL
+
+# Plot global predictions
+d_vin %>%
+  filter(cohort == 1995) %>% 
+  data_grid(age_bc = seq_range(age_bc, by = 1)) %>% 
+  add_predicted_draws(mtest, re_formula = NA) %>%
+  ggplot(aes(x = age_bc, y = length_cm)) +
+  stat_lineribbon(aes(y = .prediction), .width = .95, alpha = 0.4) +
+  geom_jitter(data = filter(d_vin, cohort == 1995),
+              alpha = 0.1, width = 0.3,
+              height = 0, size = 2) +
+  labs(y = "Length [cm]", x = "Age [yrs]") +
+  NULL
+
+# Plot individual-level parameters
+get_variables(mtest)
+
+# t0
+mtest %>%
+  spread_draws(b_t0_Intercept,
+               r_ID__t0[ID, Intercept]) %>%
+  mutate(mean_t0 = b_t0_Intercept + r_ID__t0) %>% # The random effects are offsets
+  ggplot(aes(y = factor(ID), x = mean_t0)) +
+  stat_pointinterval(.width = 0.95, alpha = 0.2) +  
+  theme(axis.text.y = element_text(size = 3)) + 
+  ggtitle("ID-level t0 with 50% credible interval (global in red)") + 
+  geom_vline(xintercept = mean(spread_draws(mtest, b_t0_Intercept)$b_t0_Intercept), 
+             color = "tomato", linetype = 2) + 
+  NULL
+
+# K
+mtest %>%
+  spread_draws(b_K_Intercept,
+               r_ID__K[ID, Intercept]) %>%
+  mutate(mean_K = b_K_Intercept + r_ID__K) %>% # The random effects are offsets
+  ggplot(aes(y = factor(ID), x = mean_K)) +
+  stat_pointinterval(.width = 0.95, alpha = 0.2) +  
+  theme(axis.text.y = element_text(size = 3)) + 
+  ggtitle("ID-level K with 50% credible interval (global in red)") + 
+  geom_vline(xintercept = mean(spread_draws(mtest, b_K_Intercept)$b_K_Intercept), 
+             color = "tomato", linetype = 2) + 
+  NULL
+
+# L_inf
+mtest %>%
+  spread_draws(b_Linf_Intercept,
+               r_ID__Linf[ID, Intercept]) %>%
+  mutate(mean_Linf = b_Linf_Intercept + r_ID__Linf) %>% # The random effects are offsets
+  ggplot(aes(y = factor(ID), x = mean_Linf)) +
+  stat_pointinterval(.width = 0.95, alpha = 0.2) +  
+  theme(axis.text.y = element_text(size = 3)) + 
+  ggtitle("ID-level Linf with 50% credible interval (global in red)") + 
+  geom_vline(xintercept = mean(spread_draws(mtest, b_Linf_Intercept)$b_Linf_Intercept), 
+             color = "tomato", linetype = 2) + 
+  NULL
+```
+
+Ok, good enough. Now loop through all cohorts and fit the same model, summarize quantiles of each cohorts parameter estimates and save in a dataframe
+
+```{r}
+ggplot(filter(d, age_catch < 5), aes(age_bc, length_cm)) + 
+  geom_point()
+```
+
+```{r loop vbge, cache=TRUE}
+# Fit model with parameters varying by ID. First filter a single year to test speed
+
+quant_list <- list()
+
+d$area_cohort_id <- paste(d$area, d$cohort, sep = "_")
+
+for(i in unique(d$area_cohort_id)) {
+  
+  dd <- filter(d, area_cohort_id == i)
+  
+  m <- 
+    brm(
+      bf(length_cm ~ Linf*(1-exp(-K*(age_bc-t0))),
+         t0 ~ 1 + (1|ID),
+         K ~ 1 + (1|ID),  
+         Linf ~ 1 + (1|ID),
+         nl = TRUE), 
+      data = dd,
+      family = gaussian(),
+      prior = c(prior(normal(45, 20), nlpar = "Linf"),
+                prior(normal(-0.5, 1), nlpar = "t0"),
+                prior(normal(0.2, 0.1), nlpar = "K")),
+      iter = 3000,
+      thin = 1,
+      cores = 3,
+      chains = 3,
+      seed = 9)
+    
+    quants <- m %>%
+      spread_draws(b_Linf_Intercept, b_K_Intercept) %>% 
+      summarise(K_01 = quantile(b_K_Intercept, probs = 0.1),
+                K_025 = quantile(b_K_Intercept, probs = 0.25),
+                K_05 = quantile(b_K_Intercept, probs = 0.5),
+                K_075 = quantile(b_K_Intercept, probs = 0.75),
+                K_09 = quantile(b_K_Intercept, probs = 0.9),
+                Linf_01 = quantile(b_Linf_Intercept, probs = 0.1),
+                Linf_025 = quantile(b_Linf_Intercept, probs = 0.25),
+                Linf_05 = quantile(b_Linf_Intercept, probs = 0.5),
+                Linf_075 = quantile(b_Linf_Intercept, probs = 0.75),
+                Linf_09 = quantile(b_Linf_Intercept, probs = 0.9)) %>% 
+      mutate(max_rhat = round(max(rhat(m)), digits = 3)) %>% 
+      as.data.frame()
+    
+    list_pos_q1 <- as.numeric(as.factor(i))
+    
+    quant_list[[i]] <- quants
+
+  }
+
+```
+
+```{r plot VN data across cohorts}
+preds <- map_df(quant_list, ~as.data.frame(.x), .id = "id")
+
+preds <- preds %>%
+  separate(id, c("area", "cohort"), -5) %>% 
+  mutate(cohort = as.numeric(str_remove(cohort, "_")))
+
+ggplot(preds, aes(max_rhat)) + 
+  geom_histogram()
+
+# Filter "unfit" models
+preds <- preds %>% filter(max_rhat < 1.2)
+
+glimpse(preds)
+
+# K
+ggplot(preds, aes(cohort, K_05, color = area)) +
+  geom_line()
+
+ggplot(preds, aes(cohort, K_05, color = area)) +
+  geom_line() + 
+  facet_wrap(~area)
+
+# preds %>% 
+#   filter(area == "BT") %>% 
+#   ggplot(aes(cohort, K_05)) +
+#   geom_ribbon(aes(ymin = K_01, ymax = K_09), fill = "grey80") + 
+#   geom_line()
+# 
+# preds %>% 
+#   filter(area == "BT") %>% 
+#   ggplot(aes(cohort, K_05)) +
+#   geom_errorbar(aes(ymin = K_01, ymax = K_09), fill = "grey80") + 
+#   geom_point()
+# 
+# ggplot(preds, aes(cohort, K_05)) +
+#   geom_ribbon(aes(ymin = K_01, ymax = K_09), fill = "grey20") + 
+#   geom_line() + 
+#   facet_wrap(~area)
+
+# L_inf
+ggplot(preds, aes(cohort, Linf_05, color = area)) +
+  geom_line()
+
+ggplot(preds, aes(cohort, Linf_05, color = area)) +
+  geom_line() + 
+  facet_wrap(~area)
+```
+
+
+# Check problematic cohorts and areas, run separate fits to those
+
+```{r, cache=TRUE}
+preds %>% filter(max_rhat > 4)
+# BT   1971 looks problematic
+  
+  dd <- filter(d, area == "BT", cohort == 1971)
+  
+  ggplot(dd, aes(age_bc, length_cm, color = ID)) + 
+    geom_point() +
+    geom_line() + 
+    scale_color_viridis(discrete = TRUE)
+  
+  m <- 
+    brm(
+      bf(length_cm ~ Linf*(1-exp(-K*(age_bc-t0))),
+         t0 ~ 1,
+         K ~ 1 + (1|ID),  
+         Linf ~ 1,
+         nl = TRUE), 
+      data = dd,
+      family = gaussian(),
+      prior = c(prior(normal(45, 20), nlpar = "Linf"),
+                prior(normal(-0.5, 1), nlpar = "t0"),
+                prior(normal(0.2, 0.1), nlpar = "K")),
+      iter = 3000,
+      thin = 1,
+      cores = 3,
+      chains = 3,
+      seed = 9)
+  
+rhat(m)
+  
+summary(m)
+
+plot(m)
+```
+

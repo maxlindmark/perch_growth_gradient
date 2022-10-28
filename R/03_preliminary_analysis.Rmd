@@ -140,6 +140,20 @@ sst_areas %>%
   facet_wrap(~area,scale="free_y") +
   NULL
 
+## plot SST by month in each area
+sst_areas %>%
+  ggplot(.,aes(x=year,y=meanSST,group=as.factor(area),color=as.factor(area))) +
+  geom_line() +
+  scale_color_brewer(palette="Set3") +
+  scale_x_continuous(breaks=seq(1940,2020,10)) +
+  theme_sleek() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  labs(x="Year",y="Mean SST",title="Mean SST in each month by area") +
+  facet_wrap(~month,scale="free_y") +
+  NULL
+
 tab <- sst_areas %>% 
   group_by(area,month) %>%
   summarize(meanSST=mean(meanSST,na.rm=T)) %>%
@@ -186,6 +200,8 @@ sst_areas_wide <- sst_areas_annual %>%
 
 sst_area_means <- data.frame(area=names(sst_areas_wide)[-1],mean_SST_allyrs=round(colMeans(sst_areas_wide[,-1]),2))
 
+## plot on map
+sst_areas_annual
 ```
 
 ## Individual growth increments from age a to a+1 
