@@ -1,0 +1,343 @@
+---
+title: "Explore and model temperature data"
+author: "Jan Ohlberger, Max Lindmark, Anna Gardmark"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+  pdf_document: defaults
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(collapse=T,
+                      comment="#>",
+                      fig.width=12,
+                      fig.height=10,
+                      fig.align ='center')
+
+```
+
+```{r load libraries,message=FALSE,warning=FALSE,results="show"}
+
+pkgs<-c("here","tidyverse","readxl","stringr","MARSS","ggplot2","RColorBrewer", "ggsidekick","kableExtra") 
+if(length(setdiff(pkgs,rownames(installed.packages())))>0){ install.packages(setdiff(pkgs,rownames(installed.packages())),dependencies=T)}
+invisible(lapply(pkgs,library,character.only=T))
+
+```
+
+## Read temperature data
+
+```{r read temperature data,message=FALSE,warning=FALSE,results="show"}
+
+home <- here::here()
+filenames <- list.files(paste0(home,"/data/temp_data"))
+raw_data<-NULL
+for(i in 1:length(filenames)){
+  dat <- read_excel(paste0(home,"/data/temp_data/",filenames[i]))
+  if(i==1) names <- colnames(dat)
+  if(i!=1) names(dat) <- names
+  area <- substr(filenames[i],1,2)
+  if(area=="SI") area <- substr(filenames[i],1,5)
+  if(area=="JM") area <- paste0(substr(filenames[i],1,2),substr(filenames[i],9,10))
+  if(area=="JMT0") area <- substr(filenames[i],1,2)
+  dat$area <- area
+  raw_data <- data.frame(rbind(raw_data,dat))
+} ## JMT0 is really JM_T10 and taken as the main temperature time series for JM
+
+```
+
+## Filter and select data
+
+```{r filter and select data,message=FALSE,warning=FALSE,results="show"}
+
+## depth measurements
+data <- raw_data %>%
+  mutate(Depth=gsub(",",".",gsub('m','',Depth))) %>%
+  filter(Depth!="Yta") %>%
+  filter(Depth!="Siktdjup") %>%
+  mutate_at('Depth',~str_replace(.,"0.3-0.5","0.5")) %>%
+  mutate_at('Depth',~str_replace(.,"ca 1.5","1.5")) %>%
+  mutate(Depth=as.numeric(Depth)) %>%
+  drop_na(Depth)
+
+## filter other columns
+data <- data %>%
+  select(area,Station_Code,Year,Month,Day,Depth,Mean) %>%
+  filter(Depth>=0.5 & Depth<=2) %>% ## restrict depth range
+  filter(Year>1963) %>%
+  filter(!(area=="TH" & Year==2006)) %>%
+  filter(!(area=="RA" & Year==1991 | area=="RA" & Year==1992)) %>%
+  filter(!is.na(Station_Code)) %>%
+  filter(Month %in% seq(12)) %>%
+  filter(Day %in% seq(31)) %>%
+  mutate(Mean=as.numeric(Mean)) %>%
+  select(-Station_Code) %>%
+  arrange(Year,Month,Day) %>%
+  mutate(date=as.Date(paste(Year,Month,Day,sep="-")))
+
+## plot data
+nA<-length(unique(data$area))
+colors<-colorRampPalette(brewer.pal(name="RdYlBu",n=10))(nA)
+
+data %>%
+  ggplot(.,aes(x=date,y=Mean,color=factor(area))) +
+  geom_line(size=0.25) +
+  scale_color_manual(values=colors,name="Area") +
+  theme_sleek() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  scale_x_date(breaks="10 years",date_labels="%Y") +
+  theme(axis.text.x=element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Year",y="Temperature") +
+  # facet_grid(cols=vars(area)) +
+  facet_wrap(~area) +
+  NULL
+
+```
+
+## Prepare data for models
+
+```{r plot raw data,message=FALSE,warning=FALSE,results="show"}
+
+## monthly means
+monthly_means_long <- data %>%
+  arrange(Year, Month, Day, area, Depth) %>%
+  group_by(area, Year, Month) %>%
+  summarize(mean_temp = round(mean(Mean, na.rm = T), 2)) %>%
+  arrange(Year, Month, area) %>%
+  mutate(Date = as.Date(paste(Year, Month, "01", sep = "-")))
+
+## wide format for model input
+monthly_means <- monthly_means_long %>%
+  mutate(YearMonth = factor(paste0(Year, "_", Month))) %>%
+  pivot_wider(names_from = YearMonth,
+              values_from = mean_temp,
+              id_cols = area) %>%
+  column_to_rownames(var = "area")
+
+## z-score data
+means <- apply(monthly_means, 1, mean, na.rm = TRUE)
+sigmas <- apply(monthly_means, 1, sd, na.rm = TRUE)
+monthly_means_zcore <- (monthly_means - means) * (1 / sigmas)
+dat <- monthly_means_zcore
+
+# matplot(t(dat),type="l",bty="n")
+
+```
+
+## MARSS model
+
+```{r fit models,message=FALSE,warning=FALSE,results="show"}
+
+## process model explained
+# x vector of true or hidden states 
+# B interactions of state processes 
+# u intercept vector of intrinsic productivities 
+# c vector of covariates that affect states (usually at t-1)
+# C coefficients relating effects of c to the state vector x
+# w process error 
+# Q correlation structure of process errors
+
+## observation model explained
+# y observations 
+# Z projection of observed to hidden states
+# a intercept vector of biases between observations  
+# d vector of covariates that affect observations (usually at t-1)
+# D coefficients relating effects of c to observations y
+# v observation error
+# R correlation structure of observation errors
+
+## time vector, areas, and fittes time series
+t.index<-names(dat)
+year_vec<-as.numeric(substr(t.index,1,4))
+month_vec<-as.numeric(substr(t.index,6,7))
+TT <- length(t.index)
+areas <- rownames(dat)
+nA <- length(areas)
+period <- 12
+y <- as.matrix(dat)
+results <- list()
+
+## process model parameters
+Q <- "unconstrained" ## correlation structure of process errors
+B <- "identity" ## no direct interactions among state processes 
+U <- "zero" ## zero intercept vector for z-scored data 
+C <- "zero" ## no coefficients estimated
+c <- "zero" ## no covariates
+
+## option 1: Q='equalvarcov' - shared variance and covariance among states/areas
+## option 2: Q='unconstrained' - full variance-covariance matrix
+
+## observation model parameters
+R <- "zero" ## correlation structure observation errors (IID?)
+# R <- matrix(0,nA,nA)
+# diag(R)<-0.1
+Z <- "identity" ## one observed time series per hidden state
+A <- "zero" ## A="zero" because Z="identity"
+D <- "zero" ## no coefficients estimated
+d <- "zero" ## no covariates 
+
+## option 1: R='diagonal and equal' - same observation error and no covariance
+## option 2: R='zero' - no observation error
+
+## model fitting
+
+## (1) month as factor
+model_list <- list(Q=Q,B=B,U=U,C=C,c=c,R=R,Z=Z,A=A,D=D,d=d)
+model_fit <- MARSS(y,model=model_list,control=list(maxit=1e3))
+results[[1]] <- mod_factor <- model_fit
+
+## (2) Fourier
+cos.t <- cos(2*pi*seq(TT)/period)
+sin.t <- sin(2*pi*seq(TT)/period)
+c <- rbind(cos.t,sin.t)
+
+## (a) constrained coefficient matrix - same seasonality by area
+C <- matrix(rep(c("cos","sin"),nA),nA,2,byrow=TRUE)
+model_list <- list(Q=Q,B=B,U=U,C=C,c=c,R=R,Z=Z,A=A,D=D,d=d)
+model_fit <- MARSS(y,model=model_list,control=list(maxit=1000))
+results[[2]] <- mod_fourier <- model_fit
+C.fourier <- coef(mod_fourier, type="matrix")$C
+fourier <- C.fourier %*% c[,1:period]
+rownames(fourier) <- areas
+colnames(fourier) <- month.abb
+
+## (b) unconstrained coefficient matrix - different seasonality by area
+C <- "unconstrained"
+model_list <- list(Q=Q,B=B,U=U,C=C,c=c,R=R,Z=Z,A=A,D=D,d=d)
+model_fit <- MARSS(y,model=model_list,control=list(maxit=1000))
+results[[3]] <- mod_fourier2 <- model_fit
+C.fourier2 <- coef(mod_fourier2, type="matrix")$C
+fourier2 <- C.fourier2 %*% c[,1:period]
+rownames(fourier2) <- areas
+colnames(fourier2) <- month.abb
+
+## plot seasonal patterns for constrained and unconstrained fourier
+par(mfrow=c(2,1),mar=c(4,4,2,2))
+matplot(t(fourier),type="l",bty="n",lty=1,col=colors,xlab="Month",ylab="Fourier", main="Basin-wide seasonality")
+matplot(t(fourier2),type="l",bty="n",lty=1,col=colors,xlab="Month",ylab="Fourier", main="Seasonality by area")
+
+```
+
+## Model selection
+
+```{r model selection,message=FALSE,warning=FALSE,results="show"}
+
+models <- c("MonthAsFactor","FourierConstrained","FourierUnconstrained")
+aiccs <- c(mod_factor$AICc,mod_fourier$AICc,mod_fourier2$AICc)
+aicc_tab <- data.frame(Model=models,AICc=round(aiccs,1))
+aicc_tab$deltaAICc <- aicc_tab$AICc-min(aicc_tab$AICc)
+weights<-exp(-0.5*aicc_tab$deltaAICc)
+aicc_tab$Weights <- round(weights/sum(weights),4)
+aicc_tab <- aicc_tab[order(aicc_tab$AICc),]
+aicc_tab$cum_weights <- cumsum(aicc_tab$Weights)
+
+aicc_tab %>%
+  kbl(caption="AICc table",digits=0) %>%
+  kable_classic(full_width=F,html_font="Cambria")
+
+```
+
+## Best model fit
+
+```{r best model fit,message=FALSE,warning=FALSE,results="show"}
+
+## select best model
+mod_sel <- aicc_tab$Model[aicc_tab$deltaAICc==0]
+mod.best <- results[[which(models==mod_sel)]]
+
+## best model parameters and fits
+paras <- mod.best$par
+mod.fits <- mod.best$states
+mod.se <- mod.best$states.se
+
+## parameter confidence intervals (takes time - only run if we need it)
+# CIs<-MARSSparamCIs(mod.best,method="hessian",alpha=0.05,nboot=10000) 
+# CI.low<-CIs$par.lowCI$A
+# CI.up<-CIs$par.upCI$A
+
+## back-transform z-scored fits
+model.fits<-data.frame(matrix(NA,ncol=nA,nrow=TT))
+for (i in 1:nA) { model.fits[,i] <- round(mod.fits[i,]*sigmas[i]+means[i],4) }
+names(model.fits)<-areas
+
+## cohort ranges by area 
+cr <- data.frame(cbind(
+  area=c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN"),
+  from=c(1985,1972,1969,1963,1982,1953,1981,1985,1968,1967,2000,1987),
+  to=c(2004,2018,2018,2019,2018,2018,2002,2006,2018,2018,2018,2000)
+))
+
+## plot data and model fits
+layout(matrix(seq(nA),ncol=1,byrow=F))
+par(mar=c(0,0,0,0),oma=c(5,4,1,4),mgp=c(2.5,0.75,0),las=2)
+colors<-colorRampPalette(brewer.pal(name="RdYlBu",n=10))(nA)
+years<-sort(unique(data$Year))
+nY<-length(years)
+xx<-seq(TT)
+xlim<-c(12,TT-12)
+ylim<-c(-3,33) 
+for(i in 1:nA) {
+  plot(NA,NA,xaxt="n",xlab="",ylab="",xlim=xlim,ylim=ylim)
+  ## polygon where cohort growth can be estimated (find smarter way to do this!)
+  if(names(model.fits)[i] %in% cr$area) {
+  coh_line<-cr[cr$area==names(model.fits)[i],]
+  if(as.numeric(coh_line$from)<min(years)) { 
+    from<-1*period-period
+    }else{
+      from<-which(years==as.numeric(coh_line$from))*period-period
+    }
+  to<-which(years==as.numeric(coh_line$to))*period-period
+  # abline(v=c(from,to),lwd=2,col="darkgray")
+  segments(from,12,to,12,lwd=100,col=alpha(1,0.1),lend=1)
+  }
+  ## MARSS model fits
+  lines(xx,model.fits[,i],lwd=1.5,col=1)
+  lines(xx,model.fits[,i],lwd=1.0,col=colors[i])
+  ## observed temperature data
+  points(xx,monthly_means[i,],pch=21,cex=0.6,lwd=0.25,bg=colors[i])
+  ## text and axis
+  mtext(paste(areas[i]),side=4,line=0.5,cex=0.8,col=colors[i],font=2)
+  if(i==nA) axis(1,at=seq(0,period*(nY-1),period),labels=years)
+}
+mtext("Temperature",side=2,line=2.5,cex=1.2,outer=T,las=0)
+mtext("Time",side=1,line=3.5,cex=1.2,outer=T,las=1)
+
+```
+
+## Annual mean temperatures
+
+```{r annual means,message=FALSE,warning=FALSE,results="show"}
+
+colors<-rev(colorRampPalette(brewer.pal(name="Paired",n=10))(nA))
+
+df <- model.fits %>%
+  pivot_longer(everything(),names_to="area",values_to="fitted") %>%
+  add_column(year=rep(year_vec,nA)) %>%
+  add_column(month=rep(month_vec,nA)) %>%
+  arrange(area,year,month) %>%
+  mutate(date=as.Date(paste(year,month,"01",sep="-")))
+  
+df %>%
+  filter(year>1963) %>%
+  mutate(year=as.numeric(year)) %>%
+  group_by(area,year) %>%
+  summarize(mean_fitted=mean(fitted)) %>%
+  ggplot(.,aes(x=year,y=mean_fitted,color=factor(area))) +
+  geom_line(size=1) +
+  scale_color_manual(values=colors,name="Area") +
+  scale_x_continuous(breaks=seq(1965,2020,5)) +
+  scale_y_continuous(breaks=seq(0,20,2)) +
+  theme_sleek() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Year",y="Temperature") +
+  NULL
+
+```
