@@ -218,7 +218,7 @@ BTAB_02_20 <- BTAB_02_20 %>%
          area = "BT")
 
 # Create ID column
-BTAB_02_20 <- BTAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+BTAB_02_20 <- BTAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Convert from operculum to length
 colnames(BTAB_02_20)
@@ -438,7 +438,7 @@ BSAB_03_06 <- BSAB_03_06 %>%
   mutate(cohort = catch_year - age)
 
 # Create ID column
-BSAB_03_06 <- BSAB_03_06 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+BSAB_03_06 <- BSAB_03_06 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Convert from operculum to length
 colnames(BSAB_03_06)
@@ -729,7 +729,7 @@ FBAB_02_20 <- FBAB_02_20 %>%
          area = "FB")
 
 # Create ID column
-FBAB_02_20 <- FBAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+FBAB_02_20 <- FBAB_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Convert from operculum to length
 colnames(FBAB_02_20)
@@ -968,7 +968,7 @@ FM_02_20 <- FM_02_20 %>%
          cohort = catch_year - age)
 
 # Create ID column
-FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+FM_02_20 <- FM_02_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Now, if the years are 04, 05, 06, length_mm is in fact not the actual length!
 # It's the operculum length. I need to correct that for those years
@@ -1131,7 +1131,7 @@ HO_88_20 <- HO_88_20 %>%
   drop_na(age)
 
 # Create ID column
-HO_88_20 <- HO_88_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+HO_88_20 <- HO_88_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Add in column that indicates if the length is from a + reading or not
 HO_88_20 <- HO_88_20 %>% 
@@ -1261,7 +1261,7 @@ JM_63_20 <- JM_63_20 %>%
   mutate(cohort = catch_year - age)
 
 # Create ID column
-JM_63_20 <- JM_63_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+JM_63_20 <- JM_63_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 unique(is.na(JM_63_20$length_mm))
 unique(is.na(JM_63_20$final_length))
@@ -1411,7 +1411,7 @@ MUAB_02_04 <- MUAB_02_04 %>%
   mutate(cohort = catch_year - age)
 
 # Create ID column
-MUAB_02_04 <- MUAB_02_04 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+MUAB_02_04 <- MUAB_02_04 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Convert from operculum to length
 colnames(MUAB_02_04)
@@ -1618,7 +1618,7 @@ RA_03_10 <- RA_03_10 %>%
          area = "RA")
 
 # Create ID column
-RA_03_10 <- RA_03_10 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+RA_03_10 <- RA_03_10 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Now, if the years are 03, 04, 05, length_mm is in fact not the actual length!
 # It's the operculum length. I need to correct that for those years
@@ -1750,7 +1750,7 @@ SIAB_63_08 <- SIAB_63_08 %>%
   filter(area %in% c("SI_EK", "SI_HA"))
 
 # Create ID column
-SIAB_63_08 <- SIAB_63_08 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+SIAB_63_08 <- SIAB_63_08 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 
 #**** Newer data (KUL) =============================================================
@@ -1799,7 +1799,7 @@ SIAB_07_19_tot <- SIAB_07_19_tot %>%
          age_ring = ifelse(reading_no > age, "N", "Y"))
 
 # Create ID column
-SIAB_07_19_tot <- SIAB_07_19_tot %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+SIAB_07_19_tot <- SIAB_07_19_tot %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 #**** Bind rows ====================================================================
 SIAB_07_19_tot$source <- "KUL"
@@ -1874,7 +1874,7 @@ THAB_03_20 <- THAB_03_20 %>%
          age_ring = ifelse(reading_no > age, "N", "Y"))
 
 # Create ID column
-TH_03_20 <- THAB_03_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+TH_03_20 <- THAB_03_20 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 #**** Plot =========================================================================
 # Plot # of samples per catch year
@@ -1984,7 +1984,7 @@ VNAB_02 <- VNAB_02 %>%
   mutate(cohort = catch_year - age)
 
 # Create ID column
-VNAB_02 <- VNAB_02 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "."))
+VNAB_02 <- VNAB_02 %>% mutate(ID = paste(catch_year, sample_nr, area, sep = "_"))
 
 # Convert from operculum to length
 colnames(VNAB_02)
