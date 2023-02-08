@@ -33,6 +33,7 @@ tidymodels_prefer(quiet=TRUE)
 conflict_prefer("lag","dplyr")
 conflict_prefer("summarize", "dplyr")
 
+theme_set(theme_sleek())
 ```
 
 ```{r load functions,message=FALSE,warning=FALSE,results="show"}
@@ -89,7 +90,6 @@ d <- d[d$area %in% cnt$area,]
 ggplot(d, aes(age_bc,length_mm,color=area)) +
   geom_jitter(size=0.1,height=0,alpha=0.1) +
   scale_x_continuous(breaks=seq(20)) +
-  theme_sleek() +
   theme(axis.text.x=element_text(angle=0)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
   labs(x="Age",y="Length (mm)") +
@@ -135,7 +135,6 @@ sst_areas %>%
   geom_line() +
   scale_color_brewer(palette="Set3") +
   scale_x_continuous(breaks=seq(1940,2020,10)) +
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=90)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -149,7 +148,6 @@ sst_areas %>%
   geom_line() +
   scale_color_brewer(palette="Set3") +
   scale_x_continuous(breaks=seq(1940,2020,10)) +
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=90)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -182,7 +180,6 @@ sst_areas_annual <- sst_areas %>%
 #   ggplot(.,aes(x=year,y=meanSST,group=area,color=area)) +
 #   geom_line() +
 #   scale_x_continuous(breaks=seq(1940,2020,10)) +
-#   theme_sleek() +
 #   theme(axis.text.x=element_text(angle=90)) +
 #   NULL
 
@@ -205,6 +202,32 @@ sst_area_means <- data.frame(area=names(sst_areas_wide)[-1],mean_SST_allyrs=roun
 
 ## plot on map
 sst_areas_annual
+```
+
+## Load gam-predicted temperature data
+
+```{r}
+pred_temp <- read_csv("data/predicted_temp/predicted_temp.csv") %>% dplyr::select(-...1)
+
+ggplot(pred_temp, aes(year, mean_temp)) + 
+  facet_wrap(~area) + 
+  geom_line()
+
+ggplot(pred_temp, aes(year, mean_temp, color = area)) + 
+  geom_line()
+
+# plot temperture range in relation to growth data
+d_min <- d %>% 
+  group_by(area) %>% 
+  summarise(year_min = min(cohort)) %>% 
+  ungroup() %>% 
+  rename(year = year_min) %>% 
+  dplyr::select(area, year)
+  
+ggplot(pred_temp, aes(year, mean_temp, color = area)) + 
+  geom_line() + 
+  geom_vline(data = d_min, aes(xintercept = year)) +
+  facet_wrap(~area)
 ```
 
 ## Individual growth increments from age a to a+1 
@@ -230,7 +253,6 @@ gD %>%
   geom_point(size=0.1,alpha=0.5) + 
   stat_smooth(aes(cohort,growth_mean,group=factor(age_gr))) +
   scale_color_brewer(palette="Paired",name="Age") +
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=90)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -245,7 +267,6 @@ gD %>%
   geom_line(size=0.1) + 
   stat_smooth(aes(cohort,growth_mean,group=factor(area)),size=0.8,se=FALSE,method="gam", formula=y~s(x,k=4)) +
   scale_color_brewer(palette="Paired",name="Area") +
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=0)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -258,11 +279,10 @@ gD %>%
 # gD %>%
 #   left_join(sst_areas_annual, by=c("area","year")) %>%
 #   filter(age_bc<7) %>%
-#   ggplot(.,aes(meanSST,growth_mean,color=factor(age_gr))) + 
-#   geom_line(size=0.1) + 
+#   ggplot(.,aes(meanSST,growth_mean,color=factor(age_gr))) +
+#   geom_line(size=0.1) +
 #   stat_smooth(aes(meanSST,growth_mean,group=factor(age_gr)),size=0.8,se=FALSE, method="gam", formula=y~s(x,k=4)) +
 #   scale_color_brewer(palette="Paired") +
-#   theme_sleek() +
 #   theme(plot.title=element_text(size=15,face="bold")) +
 #   theme(axis.text.x=element_text(angle=0)) +
 #   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -270,7 +290,6 @@ gD %>%
 #   labs(x="mean SST",y="Mean individual growth increments",title="Growth increments by age as a function of mean SST in each area") +
 #   facet_wrap(~area,scales="free") +
 #   NULL
-
 ```
 
 ## Individual von Bertalanffy or modified Gompertz growth parameter estimates
@@ -280,20 +299,130 @@ gD %>%
 ## get individual growth parameters (functions: VBGF/Gompertz,nls_out,fit_nls)
 IVBG <- d %>% 
   group_by(ID) %>% 
-  summarize(k=nls_out(fit_nls(length_mm,age_bc,min_nage=3,model="VBGF")))
-  ## model can be 'VBGF' (default) or 'Gompertz'  
+  summarize(k=nls_out(fit_nls(length_mm,age_bc,min_nage=4,model="VBGF"))$k,
+            k_se=nls_out(fit_nls(length_mm,age_bc,min_nage=4,model="VBGF"))$k_se,
+            linf=nls_out(fit_nls(length_mm,age_bc,min_nage=4,model="VBGF"))$linf,
+            linf_se=nls_out(fit_nls(length_mm,age_bc,min_nage=4,model="VBGF"))$linf_se)
 
+## model can be 'VBGF' (default) or 'Gompertz'  
+```
+
+drop_na(k_se) # do we want this? needed to calculate quantiles, but if we don't want to select individuals based on standard errors or quantiles of them we don't need this
+
+```{r check parameter estimates and their standard errors}
+IVBG2 <- IVBG %>%
+  mutate(k_lwr = k - 1.96*k_se,
+         k_upr = k + 1.96*k_se,
+         linf_lwr = linf - 1.96*linf_se,
+         linf_upr = linf + 1.96*linf_se,
+         row_id = row_number()) %>% 
+  drop_na(k_se) # do we want this? needed to calculate quantiles, but if we don't want to select individuals based on standard errors or quantiles of them we don't need this
+
+# IVBG2 <- IVBG %>%
+#   tidylog::drop_na(linf_se) %>%
+#   tidylog::mutate(keep = ifelse(k_se < quantile(k_se, prob = 0.95), "Y", "N")) %>%
+#   tidylog::filter(keep == "Y")
+
+# Plot all K's
+IVBG2 %>%
+  #filter(row_id < 5000) %>%
+  ggplot(aes(row_id, k, ymin = k_lwr, ymax = k_upr)) +
+  geom_point(alpha = 0.5) +
+  geom_errorbar(alpha = 0.5) +
+  NULL
+
+# Plot all L_inf's
+IVBG2 %>%
+  #filter(row_id < 5000) %>%
+  ggplot(aes(row_id, linf, ymin = linf_lwr, ymax = linf_upr)) +
+  geom_point(alpha = 0.5) +
+  geom_errorbar(alpha = 0.5) +
+  NULL
+
+# After some exploring, we though that it's easy to detect which individuals have "nonsense" parameter estimates when looking at L_inf. Take this individual for instance:
+t <- IVBG2 %>%
+  tidylog::drop_na(linf_se) %>%
+  tidylog::mutate(keep = ifelse(linf < linf_se, "N", "Y")) %>%
+  filter(ID == "1970_234_FM")
+t
+
+# Absolutely mad L_inf (and therefore also K due to their correlation), but the model fit in relation to data looks good:
+d %>%
+  filter(ID == "1970_234_FM") %>%
+  tidylog::mutate(length_mm_pred = t$linf*(1-exp(-t$k*age_bc))) %>%
+  ggplot(aes(age_bc, length_mm)) +
+  geom_point() +
+  geom_line(aes(age_bc, length_mm_pred), color = "tomato3", inherit.aes = FALSE)
+
+IVBG2 %>%
+  tidylog::drop_na(linf_se) %>%
+  tidylog::mutate(keep = ifelse(k < k_se, "N", "Y")) %>%
+  #filter(row_id < 10000) %>%
+  ggplot(aes(row_id, k, ymin = k_lwr, ymax = k_upr, color = keep)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~keep, ncol = 1) +
+  geom_errorbar(alpha = 0.5) +
+  NULL
+
+# We can also consider removing the upper 95% quantile of standard errors (not quantile of K directly)
+IVBG2 %>%
+  tidylog::drop_na(linf_se) %>%
+  tidylog::mutate(keep = ifelse(k > quantile(k_se, probs = 0.95), "N", "Y")) %>%
+  #filter(row_id < 10000) %>%
+  ggplot(aes(row_id, k, ymin = k_lwr, ymax = k_upr, color = keep)) +
+  geom_point(alpha = 0.5) +
+  facet_wrap(~keep, ncol = 1) +
+  geom_errorbar(alpha = 0.5) +
+  NULL
+
+IVBG2 %>% tidylog::filter(k > quantile(k_se, probs = 0.95))
+
+# compare how the means and quantiles differ depending on this filtering
+IVBG2_filter <- IVBG2 %>%
+  tidylog::drop_na(k_se) %>%
+  tidylog::filter(k_se < quantile(k_se, probs = 0.95)) %>%
+  group_by()
+
+# IVBG2_filter <- IVBG2 %>% 
+#   tidylog::drop_na(k_se) %>% 
+#   tidylog::filter(k < k_se) %>% 
+#   group_by()
+
+# add cohort and area attributes
+d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
+
+IVBG2 <- IVBG2 %>% left_join(d_red,by="ID")
+IVBG2_filter <- IVBG2_filter %>% left_join(d_red,by="ID")
+
+# summarize growth coefficients by cohort and area
+VBG <- IVBG2 %>%
+  group_by(cohort,area) %>%
+  summarize(k_mean=mean(k,na.rm=T),
+            k_median=quantile(k,prob=0.5,na.rm=T),
+            k_lwr=quantile(k,prob=0.05,na.rm=T),
+            k_upr=quantile(k,prob=0.95,na.rm=T))
+
+VBG_filter <- IVBG2_filter %>%
+  group_by(cohort,area) %>%
+  summarize(k_mean=mean(k,na.rm=T),
+            k_median=quantile(k,prob=0.5,na.rm=T),
+            k_lwr=quantile(k,prob=0.05,na.rm=T),
+            k_upr=quantile(k,prob=0.95,na.rm=T))
+
+ggplot() +
+  geom_ribbon(data = VBG, aes(cohort, k_median, ymin = k_lwr, ymax = k_upr, fill = "All k's"), alpha = 0.4) +
+  geom_ribbon(data = VBG_filter, aes(cohort, k_median, ymin = k_lwr, ymax = k_upr, fill = "Filtered"), alpha = 0.4) +
+  geom_line(data = VBG, aes(cohort, k_median, color = "All k's")) + 
+  geom_line(data = VBG_filter, aes(cohort, k_median, color = "Filtered")) + 
+  guides(fill = FALSE) +
+  facet_wrap(~area)
+
+# No difference at all really. We should probably just discuss that with this model, achieving biologically reasonable parameter values and a good fit to data are sometimes two different things. In our case, we just want a representative value of the growth (as in time to reach average maximum size in the population) that accounts for the entire growth trajectory of an individual, for each area and cohort.
+```
+
+```{r explore fitted paramaters in relation to temperature}
 ## using the fit_nls_multstart() instead works but takes a long time to fit:
 # summarize(k=nls_out(fit_nls_multstart(length_mm,age_bc,min_nage=3,model="VBGF")))
-
-## add cohort and area attributes
-d_red <- d[!duplicated(d[,"ID"]),names(d) %in% c("ID","cohort","area")]
-IVBG <- IVBG %>% left_join(d_red,by="ID")
-
-## summarize growth coefficients by cohort and area
-VBG <- IVBG %>%
-  group_by(cohort,area) %>%
-  summarize(k_mean=mean(k,na.rm=T),k_median=quantile(k,prob=0.5,na.rm=T))
 
 # test<-unique(VBG$cohort[VBG$area=="TH"]);min(test);max(test)
 
@@ -327,7 +456,6 @@ VBGz %>%
   ggplot(.,aes(year,k_mean,color=area,group=area)) +
   geom_line(size=0.6) +
   scale_color_brewer(palette="Paired") +
-  theme_sleek() +
   theme(axis.text.x=element_text(angle=0)) +
   labs(x="Cohort",y="Scaled growth rate coefficient") +
   NULL
@@ -338,7 +466,6 @@ VBG %>%
   geom_point(size=1) + ## aes(size=n)
   stat_smooth(aes(meanSST,k_median,group=area),size=0.5,se=F,method="gam", formula=y~s(x,k=5)) +
   scale_color_manual(values=colors,name="Area") + ## (mean SST)
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=0)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -368,7 +495,6 @@ df_corr <- VBGz %>%
 #   geom_point(size=3) +
 #   geom_smooth(method='lm',formula=y~as.numeric(x)) +
 #   scale_color_brewer(palette="Paired") +
-#   theme_sleek() +
 #   NULL
 
 ## gamm with SST effect and accounting for spatial correlation 
@@ -443,7 +569,6 @@ pred_nls_fits %>%
   geom_point(aes(meanSST,k_median,color=factor(area)),VBG,size=0.6) + ## data
   geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
   scale_color_manual(values=colors,name="Area") +
-  theme_sleek() +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=0)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
