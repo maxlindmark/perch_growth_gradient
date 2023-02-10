@@ -1,0 +1,450 @@
+---
+title: "Explore temperature data and fit preliminary models"
+author: "Max Lindmark, Jan Ohlberger, Anna Gardmark"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+  pdf_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+# Explore all sources of temperature data (NOAA, temp logger, measured when fishing). Based on Jan's scripts explore_temp_data.R and 03_preliminary_analysis.Rmd
+
+```{r setup,include=FALSE,cache=FALSE}
+knitr::opts_chunk$set(
+  collapse=TRUE,
+  comment="#>",
+  fig.align ='center'
+)
+```
+
+```{r load libraries,message=FALSE,warning=FALSE,results="show"}
+pkgs<-c("here","tidyverse","readxl","stringr","MARSS","ggplot2","RColorBrewer", "ggsidekick", "lubridate", "ISOweek", "viridis", "ncdf4", "reshape2", "mgcv") 
+if(length(setdiff(pkgs,rownames(installed.packages())))>0){ install.packages(setdiff(pkgs,rownames(installed.packages())),dependencies=T)}
+invisible(lapply(pkgs,library,character.only=T))
+
+theme_set(theme_sleek())
+
+area <- c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN")
+nareas<-length(area)
+colors<-rev(colorRampPalette(brewer.pal(name="RdYlBu",n=10))(nareas))
+```
+
+```{r load functions,message=FALSE,warning=FALSE,results="show"}
+
+home <- here::here()
+fxn <- list.files(paste0(home,"/R/functions"))
+invisible(sapply(FUN=source,paste0(home,"/R/functions/",fxn)))
+
+```
+
+## Temperature logger data
+
+```{r load and clean temp logger data}
+home <- here::here()
+filenames <- list.files(paste0(home,"/data/temp_data"))
+raw_data<-NULL
+for(i in 1:length(filenames)){
+  dat <- read_excel(paste0(home,"/data/temp_data/",filenames[i]))
+  if(i==1) names <- colnames(dat)
+  if(i!=1) names(dat) <- names
+  area <- substr(filenames[i],1,2)
+  if(area=="SI") area <- substr(filenames[i],1,5)
+  if(area=="JM") area <- paste0(substr(filenames[i],1,2),substr(filenames[i],9,10))
+  if(area=="JMT0") area <- substr(filenames[i],1,2)
+  dat$area <- area
+  raw_data <- data.frame(rbind(raw_data,dat))
+} ## JMT0 is really JM_T10 and taken as the main temperature time series for JM
+
+# Filter only one JM series: Which one?
+raw_data <- raw_data %>% filter(!area %in% c("JMT2", "JMT3"))
+
+## depth measurements
+log_dat <- raw_data %>%
+  mutate(Depth=gsub(",",".",gsub('m','',Depth))) %>%
+  filter(Depth!="Yta") %>%
+  filter(Depth!="Siktdjup") %>%
+  mutate_at('Depth',~str_replace(.,"0.3-0.5","0.5")) %>%
+  mutate_at('Depth',~str_replace(.,"ca 1.5","1.5")) %>%
+  mutate(Depth=as.numeric(Depth)) %>%
+  drop_na(Depth)
+
+## filter other columns
+log_dat <- log_dat %>%
+  select(area,Station_Code,Year,Month,Day,Depth,Mean) %>%
+  filter(Depth>=0.5 & Depth<=1.5) %>% ## restrict depth range
+  filter(Year %in% seq(1963,2019,1)) %>% ## complete years only
+  filter(!is.na(Station_Code)) %>%
+  filter(Month %in% seq(12)) %>%
+  filter(Day %in% seq(31)) %>%
+  mutate(Mean=as.numeric(Mean)) %>%
+  select(-Station_Code) %>%
+  mutate(date=as.Date(paste(Year,Month,Day,sep="-")))
+
+# Calculate some date variables needed when joining data sets and fitting models
+log_dat <- log_dat %>% 
+  mutate(yday = yday(date),
+         month = month(date)) %>% 
+  rename(year = Year,
+         temp = Mean) %>% 
+  dplyr::select(year, area, temp, yday, month, date) %>% 
+  mutate(source = "logger",
+         date = as.character(date))
+
+## plot data over year
+log_dat %>%
+  ggplot(.,aes(x=year,y=temp,color=yday)) +
+  geom_point(size=0.25) +
+  scale_color_viridis() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  theme(axis.text.x=element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Year",y="Temperature") +
+  # facet_grid(cols=vars(area)) +
+  facet_wrap(~area) +
+  NULL
+
+## plot data over yearday
+log_dat %>%
+  ggplot(.,aes(x=yday,y=temp,color=factor(year))) +
+  geom_point(size=0.25) +
+  scale_color_viridis(discrete = TRUE) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  theme(axis.text.x=element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Day-of-the-year",y="Temperature") +
+  # facet_grid(cols=vars(area)) +
+  facet_wrap(~area) +
+  NULL
+```
+
+## Temperature at fishing
+We need to merge data from two different datasource. @Anna: How to deal with overlapping year-area combinations? Do the same data exist in both databases? 
+
+```{r}
+kul_dat <- read_excel("data/temp_data_fishing/temp_at_fishing.xlsx", skip = 4) %>% 
+  mutate(Lokal = ifelse(Lokal == "Simpevarp" & Fångstområde == "Ekö", "SI_EK", Lokal),
+         Lokal = ifelse(Lokal == "Simpevarp" & Fångstområde == "Hamnefjärden", "SI_HA", Lokal)) %>% 
+  mutate(area = recode_factor(Lokal,
+                              "Kvädöfjärden" = "JM", 
+                              "Muskö" = "MU",
+                              "Holmön" = "HO",
+                              "Forsmark" = "FM",
+                              "Finbo, Åland" = "FB",
+                              "Råneå" = "RA",
+                              "Torhamn, Karlskrona Ö skärgård" = "TH",
+                              "Biotestsjön, Forsmark" = "BT",
+                              "Vinö" = "VN")) %>% 
+  rename(temp = Värde,
+         year = År, 
+         date = `Vittjnings\ndatum`) %>% 
+  mutate(db = "KUL",
+         yday = yday(date),
+         month = month(date),
+         id = paste(year, area, sep = "_")) %>% 
+  mutate(temp = ifelse(area == "SI_HA" & temp == 267, 26.7, temp)) %>% 
+  filter(!area == "Simpevarp") %>% 
+  #filter(month >= 5 & month <= 9) %>% 
+  filter(temp < 100) %>% 
+  filter(Vertikalstyp == "Yta") %>% 
+  dplyr::select(year, yday, date, temp, area, id, db)
+
+
+# Plot
+ggplot(kul_dat,aes(x=year,y=temp,color=area)) +
+  geom_point(size=1) +
+  guides(color = "none") +
+  labs(x="Year",y="Temperature") +
+  facet_wrap(~area) +
+  NULL
+
+
+## Now we need to add in the rest of the data from Firre database
+home <- here::here()
+filenames <- list.files(paste0(home,"/data/temp_data_fishing_firre"))
+raw_data<-NULL
+for(i in 1:length(filenames)){
+  dat <- read_excel(paste0(home,"/data/temp_data_fishing_firre/",filenames[i]))
+  if(i==1) names <- colnames(dat)
+  if(i!=1) names(dat) <- names
+  area <- substr(filenames[i],1,2)
+  if(area=="SI") area <- substr(filenames[i],1,5)
+  #if(area=="JM") area <- paste0(substr(filenames[i],1,2),substr(filenames[i],9,10))
+  if(area=="JMT0") area <- substr(filenames[i],1,2)
+  dat$area <- area
+  raw_data <- data.frame(rbind(raw_data,dat))
+} ## JMT0 is really JM_T10 and taken as the main temperature time series for JM
+
+# Here I get a warning when I convert to data from Year, Week, day-of-week. Could be due to different date standards (week starting with 0 instead of 1, which I think is the ISO way and how our data are coded. It's however not an option in as.Date, which is why i looked into `ISOweek2date`. But that throws an error for some of the dates. Hmm. A simple test however shows that as.Date returns the correct day (double checked). The warnings from as.Date and the error from ISOweek2date could be due to error in data entry. Will explore. 
+# https://stackoverflow.com/questions/45549449/transform-year-week-to-date-object
+# https://www.r-bloggers.com/2013/08/date-formats-in-r/
+firre_dat <- raw_data %>% 
+  mutate(group = ifelse(VkDag > 100, "2", "1")) %>% 
+  mutate(VkDag2 = ifelse(group == "1", paste0(0, VkDag), VkDag)) %>%  # add zero before strings with length 2...
+  separate(VkDag2, sep = 2, into = c("week", 'day'), extra = 'drop', remove = FALSE) %>% 
+  mutate(week = as.numeric(week), # to get rid of the 0
+         day = as.numeric(day)) %>% 
+  mutate(date = as.Date(paste(Årtal, week, day, sep = "-"), "%Y-%U-%u")) %>% 
+  # mutate(week2 = paste0("W", week),
+  #        weekdate = paste(Årtal, week2, day, sep = "-")) #%>% 
+  mutate(#date = ISOweek2date(weekdate),
+         yday = yday(date),
+         month = month(date)) %>% 
+  rename(year = Årtal,
+         stn_nr = Station,
+         section_nr = Sektion) %>% 
+  filter(!if_all(c(MedelFörTemperatur_i, MedelFörTemperatur_u), is.na)) %>% 
+  mutate(MedelFörTemperatur_i = ifelse(is.na(MedelFörTemperatur_i), MedelFörTemperatur_u, MedelFörTemperatur_i),
+         MedelFörTemperatur_u = ifelse(is.na(MedelFörTemperatur_u), MedelFörTemperatur_i, MedelFörTemperatur_u)) %>% 
+  mutate(temp = (MedelFörTemperatur_i + MedelFörTemperatur_u) / 2,
+         db = "FIRRE",
+         id = paste(year, area, sep = "_")) %>% 
+  dplyr::select(year, yday, month, day, date, VkDag, temp, area, stn_nr, section_nr, db, id) %>% 
+  drop_na(date) %>% 
+  mutate(date = as.character(date))
+
+# Now we need to merge it with fish_dat
+
+fish_dat <- bind_rows(firre_dat %>% filter(!id %in% kul_dat$id), # here i think I remove duplicates
+                      kul_dat) %>% 
+  mutate(source = "fishing")
+
+## plot data over year
+fish_dat %>%
+  ggplot(.,aes(x=year,y=temp,color=yday)) +
+  geom_point(size=0.25) +
+  scale_color_viridis() +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Year",y="Temperature") +
+  # facet_grid(cols=vars(area)) +
+  facet_wrap(~area) +
+  NULL
+
+## plot data over yearday
+fish_dat %>%
+  ggplot(.,aes(x=yday,y=temp,color=factor(year))) +
+  geom_point(size=0.25) +
+  scale_color_viridis(discrete = TRUE) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  theme(axis.text.x=element_text(angle=90)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  labs(x="Day-of-the-year",y="Temperature") +
+  # facet_grid(cols=vars(area)) +
+  facet_wrap(~area) +
+  NULL
+```
+
+## Load ERSST data
+
+```{r}
+## longitude and latitude attributes for each area
+area <- c("BS","BT","FB","FM","HO","JM","MU","RA","SI_EK","SI_HA","TH","VN")
+nareas<-length(area)
+lat <- c(60,60.4,60.3,60.5,63.7,58,59,65.9,57.3,57.4,56.1,57.5)
+lon <- c(21.5,18.1,19.5,18,20.9,16.8,18.1,22.3,16.6,16.7,15.9,16.9)
+area_attr<-data.frame(cbind(area=area,lat=lat,lon=lon)) %>%
+  mutate_at(c("lat","lon"),as.numeric)
+
+## download ERSST data - only run when update needed
+# sst_dat_all <- get_ersst_data(years=seq(1940,2022),data.dir=paste0(home,"/data"), latrange=c(55,66),lonrange=c(15,23))
+
+## SST based on ERSST data with relatively low spatial resolution (2x2 degrees)
+## need to cover at least 2x2 grid area with even numbers for longitude/latitude
+sst_areas<-NULL
+lat_ranges<-lon_ranges<-list() ## for testing only
+for(a in 1:nareas) {
+  lat_range <- c(2*floor(area_attr$lat[a]/2),2*floor(area_attr$lat[a]/2)+2)
+  lon_range <- c(2*floor(area_attr$lon[a]/2),2*floor(area_attr$lon[a]/2)+2)
+  sst_area <- load_ersst_data(years=c(1940,2022),data.dir=paste0(home,"/data"), ncfilename="sst.mnmean.nc",latrange=lat_range,lonrange=lon_range)
+  sst_area$area<-area_attr$area[a]
+  sst_areas <- bind_rows(sst_areas,sst_area)
+  lat_ranges[[a]] <- lat_range
+  lon_ranges[[a]] <- lon_range
+}
+latranges<-data.frame(matrix(unlist(lat_ranges),ncol=2,byrow=T))
+lonranges<-data.frame(matrix(unlist(lon_ranges),ncol=2,byrow=T))
+
+## plot SST by area in each month
+sst_areas %>%
+  ggplot(.,aes(x=year,y=meanSST,group=as.factor(month),color=as.factor(month))) +
+  geom_line() +
+  scale_color_brewer(palette="Set3") +
+  scale_x_continuous(breaks=seq(1940,2020,10)) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  labs(x="Year",y="Mean SST",title="Mean SST in each month by area") +
+  facet_wrap(~area,scale="free_y") +
+  NULL
+
+sst_areas <- sst_areas %>% 
+  mutate(date = paste(year, month, 15, sep = "-"),
+         yday = yday(date),
+         source = "errs",
+         month = as.numeric(month)) %>% 
+  rename(temp = meanSST)
+
+errs_dat <- sst_areas
+
+## plot SST by month in each area
+errs_dat %>%
+  ggplot(.,aes(x=year,y=temp,group=as.factor(area),color=as.factor(area))) +
+  geom_line() +
+  #scale_color_manual(values=rev(colors)) +
+  scale_x_continuous(breaks=seq(1940,2020,10)) +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=90)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  labs(x="Year",y="Mean SST",title="Mean SST in each month by area") +
+  facet_wrap(~month,scale="free_y") +
+  NULL
+```
+
+```{r combine data and explore}
+all_temp <- bind_rows(log_dat, errs_dat, fish_dat)
+
+# See if we can compare the mean temperature in a time of the year that have overlap
+all_temp %>% 
+  filter(area == "FB") %>% 
+  ggplot(aes(yday, fill = source)) + 
+  facet_wrap(~year, scales = "free_y") + 
+  geom_density(alpha = 0.5, color = NA)
+
+# 1998:2001 looks like overlap
+
+all_temp %>% 
+  filter(area == "FB" & year %in% c(1998:2001)) %>% 
+  ggplot(aes(yday, fill = source)) + 
+  facet_wrap(~year, scales = "free_y") + 
+  geom_density(alpha = 0.5, color = NA) + 
+  geom_vline(xintercept = 200) + 
+  geom_vline(xintercept = 230)
+
+# Some examples: OK match but not in BT which makes sense because the noaa data isn't fine scale enough
+
+all_temp %>% 
+  filter(area == "FB" & year %in% c(1998:2001)) %>% 
+  ggplot(aes(yday, temp, color = source)) +
+  geom_point() + 
+  geom_line() + 
+  facet_wrap(~year)
+
+# all_temp %>% 
+#   filter(area == "FB" & year %in% c(1998:2001)) %>% 
+#   ggplot(aes(year, temp, color = source)) +
+#   geom_jitter()
+
+all_temp %>% 
+  filter(area == "SI_EK" & year %in% c(1998:2001)) %>% 
+  ggplot(aes(yday, temp, color = source)) +
+  geom_point() + 
+  geom_line() + 
+  facet_wrap(~year)
+
+all_temp %>% 
+  filter(area == "BT" & year %in% c(1998:2001)) %>% 
+  ggplot(aes(yday, temp, color = source)) +
+  geom_point() + 
+  geom_line() + 
+  facet_wrap(~year)
+```
+
+```{r fit tempetature models to get the longest series possible but account for changes in data source}
+
+# Very simple model: area and source as fixed effects, a smooth over year that varies by area and a yearday smooth that also varies by area
+
+unique(all_temp$area)
+unique(all_temp$source)
+
+all_temp <- all_temp %>% mutate(area = as.factor(area),
+                                source = as.factor(source))
+
+m1 <- gam(temp ~ area + source + s(year, by = area) + s(yday, by = area), 
+          data = all_temp)
+
+qq.gam(m1) # some tails but that's fine. we can fit this with brms later and use a student-t likelihood
+
+
+# Make a new data frame and predict!
+nd <- data.frame(expand.grid(yday = seq(min(all_temp$yday), max(all_temp$yday), by = 1),
+                             area = unique(all_temp$area),
+                             year = unique(all_temp$year),
+                             source = unique(all_temp$source))) #%>%
+  # mutate(id = paste(year, area, sep = "_"),
+  #        source = "logger") %>% 
+  # filter(id %in% unique(all_temp$id))
+
+# Takes some time...
+nd$pred <- predict(m1, newdata = nd)
+
+# This is the total model prediction. Lets explore in more detail
+ggplot(data = nd, aes(yday, y = year, fill = pred, color = pred)) +
+    geom_raster() +
+    facet_wrap(~area, ncol = 3) +
+    scale_fill_viridis(option = "magma") +
+    scale_color_viridis(option = "magma") +
+    labs(x = "Yearday", y = "Year", color = "Predicted SST (°C)", fill = "Predicted SST (°C)") +
+    NULL
+
+# first trim the prediction dataframe with the years for which we have cohorts 
+
+# For matching with cohort data
+gdat <- readr::read_csv(paste0(home,"/data/for_analysis/dat.csv")) %>%
+  select(-...1) %>%
+  filter(age_ring == "Y") %>% 
+  group_by(area) %>%
+  summarise(first_cohort = min(cohort))
+  
+nd <- left_join(nd, gdat, by = "area")
+
+nd <- nd %>% mutate(growth_dat = ifelse(year > first_cohort, "Y", "N"))
+
+# plot over yday
+nd %>% 
+  filter(growth_dat == "Y" & year %in% c(1985, 1995, 2005, 2015)) %>% 
+  ggplot(aes(yday, pred, color = factor(year), linetype = source)) + 
+  geom_line(size = 0.5, alpha = 0.5) + 
+  facet_wrap(~area) + 
+  NULL
+
+# plot over year
+nd %>% 
+  filter(growth_dat == "Y" & yday %in% c(yday("2000-03-01"):yday("2000-10-01"))) %>% 
+  group_by(area, year, source) %>% 
+  summarise(mean_temp = mean(pred)) %>% 
+  ggplot(aes(year, mean_temp, color = source)) + 
+  geom_line(size = 0.5, alpha = 0.5) + 
+  facet_wrap(~area) + 
+  NULL
+
+
+# Plot predicted temperatures in relation to ERRS data
+errs_dat2 <- errs_dat %>% 
+  filter(yday %in% c(yday("2000-03-01"):yday("2000-10-01"))) %>% 
+  group_by(year, area) %>% 
+  summarise(mean_temp = mean(temp))
+
+nd %>% 
+  filter(growth_dat == "Y" & yday %in% c(yday("2000-03-01"):yday("2000-10-01")) & source == "logger") %>% 
+  group_by(area, year) %>% 
+  summarise(mean_temp = mean(pred)) %>% 
+  ggplot(aes(year, mean_temp, color = "prediction")) + 
+  geom_line(size = 0.5, alpha = 0.5) +
+  geom_line(data = errs_dat2, aes(year, mean_temp, color = "ERRS"), size = 0.5, alpha = 0.5) + 
+  facet_wrap(~area) + 
+  NULL
+
+# save prediciton df
+write.csv(nd, "output/gam_predicted_temps.csv")
+
+```
+
