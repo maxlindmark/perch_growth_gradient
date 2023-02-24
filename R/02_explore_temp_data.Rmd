@@ -356,38 +356,90 @@ all_temp %>%
   geom_point() + 
   geom_line() + 
   facet_wrap(~year)
+
+# Plot logger data and make sure we only use correct data
+all_temp %>% 
+  filter(source == "logger") %>% 
+  ggplot(aes(yday, temp)) +
+  geom_line() + 
+  facet_grid(area~year)
+
+# Take a close look at SI_EK 1995
+all_temp %>% 
+  filter(source == "logger" & area == "SI_EK" & year == 1996) %>% 
+  ggplot(aes(yday, temp)) +
+  geom_point() + 
+  facet_grid(area~year)
+
+# Filter the row of very low values
+all_temp %>% 
+  filter(source == "logger" & area == "SI_EK" & year == 1996) %>% 
+  mutate(keep = ifelse(temp < 6.54, "N", "Y")) %>% 
+  ggplot(aes(yday, temp, color = keep)) +
+  geom_point() + 
+  facet_grid(area~year)
+
+all_temp <- all_temp %>% 
+  mutate(keep = ifelse(source == "logger" & area == "SI_EK" & year == 1996 & temp < 6.54, "N", "Y")) %>% 
+  filter(keep == "Y") %>%
+  dplyr::select(-keep)
+
+# Now we need to filter so that we don't use ERRS data in the heated times for the heated areas
+all_temp %>% 
+  filter(area %in% c("SI_HA", "BT")) %>% 
+  mutate(keep = ifelse(area %in% c("SI_HA", "BT") & source == "errs" & year > 1980, "N", "Y")) %>% 
+  filter(keep == "Y") %>%
+  group_by(area, year, source) %>% 
+  summarise(mean_temp = mean(temp)) %>% 
+  ggplot(aes(year, mean_temp, color = source)) +
+  geom_line() + 
+  facet_wrap(~area, ncol = 2)
+
+all_temp <- all_temp %>% 
+  mutate(keep = ifelse(area %in% c("SI_HA", "BT") & source == "errs" & year > 1980, "N", "Y")) %>% 
+  filter(keep == "Y") %>%
+  dplyr::select(-keep)
 ```
 
 ```{r fit tempetature models to get the longest series possible but account for changes in data source}
-
 # Very simple model: area and source as fixed effects, a smooth over year that varies by area and a yearday smooth that also varies by area
-
 unique(all_temp$area)
 unique(all_temp$source)
 
 all_temp <- all_temp %>% mutate(area = as.factor(area),
-                                source = as.factor(source))
+                                source = as.factor(source),
+                                year_f = as.factor(year))
 
-m1 <- gam(temp ~ area + source + s(year, by = area) + s(yday, by = area), 
-          data = all_temp)
+# Smooth year effect
+m1 <- gam(temp ~ area + source + s(year, by = area) + s(yday, by = area, bs = "cc"), 
+          data = all_temp,
+          knots = list(yday = c(0.5, 364.5)))
 
 qq.gam(m1) # some tails but that's fine. we can fit this with brms later and use a student-t likelihood
 
+# Fixed year effects
+m2 <- gam(temp ~ area + source + year_f + s(yday, by = area, bs = "cc"), 
+          data = all_temp,
+          knots = list(yday = c(0.5, 364.5)))
 
+qq.gam(m2) # some tails but that's fine. we can fit this with brms later and use a student-t likelihood
+```
+
+```{r}
 # Make a new data frame and predict!
 nd <- data.frame(expand.grid(yday = seq(min(all_temp$yday), max(all_temp$yday), by = 1),
                              area = unique(all_temp$area),
-                             year = unique(all_temp$year),
-                             source = unique(all_temp$source))) #%>%
-  # mutate(id = paste(year, area, sep = "_"),
-  #        source = "logger") %>% 
-  # filter(id %in% unique(all_temp$id))
+                             year = unique(all_temp$year))) %>%
+  mutate(id = paste(year, area, sep = "_"),
+         source = "logger",
+         year_f = as.factor(year)) 
 
-# Takes some time...
-nd$pred <- predict(m1, newdata = nd)
+# Predict
+nd$pred_1 <- predict(m1, newdata = nd)
+nd$pred_2 <- predict(m2, newdata = nd)
 
 # This is the total model prediction. Lets explore in more detail
-ggplot(data = nd, aes(yday, y = year, fill = pred, color = pred)) +
+ggplot(data = nd, aes(yday, y = year, fill = pred_1, color = pred_1)) +
     geom_raster() +
     facet_wrap(~area, ncol = 3) +
     scale_fill_viridis(option = "magma") +
@@ -395,8 +447,15 @@ ggplot(data = nd, aes(yday, y = year, fill = pred, color = pred)) +
     labs(x = "Yearday", y = "Year", color = "Predicted SST (°C)", fill = "Predicted SST (°C)") +
     NULL
 
-# first trim the prediction dataframe with the years for which we have cohorts 
+ggplot(data = nd, aes(yday, y = year, fill = pred_2, color = pred_2)) +
+    geom_raster() +
+    facet_wrap(~area, ncol = 3) +
+    scale_fill_viridis(option = "magma") +
+    scale_color_viridis(option = "magma") +
+    labs(x = "Yearday", y = "Year", color = "Predicted SST (°C)", fill = "Predicted SST (°C)") +
+    NULL
 
+# Trim the prediction dataframe with the years for which we have cohorts 
 # For matching with cohort data
 gdat <- readr::read_csv(paste0(home,"/data/for_analysis/dat.csv")) %>%
   select(-...1) %>%
@@ -408,10 +467,17 @@ nd <- left_join(nd, gdat, by = "area")
 
 nd <- nd %>% mutate(growth_dat = ifelse(year > first_cohort, "Y", "N"))
 
-# plot over yday
+# Plot over yday
 nd %>% 
   filter(growth_dat == "Y" & year %in% c(1985, 1995, 2005, 2015)) %>% 
-  ggplot(aes(yday, pred, color = factor(year), linetype = source)) + 
+  ggplot(aes(yday, pred_1, color = factor(year), linetype = source)) + 
+  geom_line(size = 0.5, alpha = 0.5) + 
+  facet_wrap(~area) + 
+  NULL
+
+nd %>% 
+  filter(growth_dat == "Y" & year %in% c(1985, 1995, 2005, 2015)) %>% 
+  ggplot(aes(yday, pred_2, color = factor(year), linetype = source)) + 
   geom_line(size = 0.5, alpha = 0.5) + 
   facet_wrap(~area) + 
   NULL
@@ -420,31 +486,67 @@ nd %>%
 nd %>% 
   filter(growth_dat == "Y" & yday %in% c(yday("2000-03-01"):yday("2000-10-01"))) %>% 
   group_by(area, year, source) %>% 
-  summarise(mean_temp = mean(pred)) %>% 
-  ggplot(aes(year, mean_temp, color = source)) + 
+  summarise(pred_1 = mean(pred_1),
+            pred_2 = mean(pred_2)) %>% 
+  ungroup() %>% 
+  pivot_longer(c(pred_1, pred_2)) %>% 
+  ggplot(aes(year, value, color = name)) + 
   geom_line(size = 0.5, alpha = 0.5) + 
   facet_wrap(~area) + 
   NULL
 
-
 # Plot predicted temperatures in relation to ERRS data
-errs_dat2 <- errs_dat %>% 
-  filter(yday %in% c(yday("2000-03-01"):yday("2000-10-01"))) %>% 
-  group_by(year, area) %>% 
-  summarise(mean_temp = mean(temp))
+all_temp2 <- all_temp %>% 
+  filter(yday %in% c(yday("2000-05-01"):yday("2000-9-01"))) %>% 
+  group_by(year, area, source) %>% 
+  summarise(temp = mean(temp)) %>% 
+  mutate(type = "data")
 
-nd %>% 
-  filter(growth_dat == "Y" & yday %in% c(yday("2000-03-01"):yday("2000-10-01")) & source == "logger") %>% 
+preds <- nd %>% 
+  filter(growth_dat == "Y" & yday %in% c(yday("2000-05-01"):yday("2000-9-01")) & source == "logger") %>% 
   group_by(area, year) %>% 
-  summarise(mean_temp = mean(pred)) %>% 
-  ggplot(aes(year, mean_temp, color = "prediction")) + 
-  geom_line(size = 0.5, alpha = 0.5) +
-  geom_line(data = errs_dat2, aes(year, mean_temp, color = "ERRS"), size = 0.5, alpha = 0.5) + 
+  summarise("_smooth_yr" = mean(pred_1),
+            "_fctr_yr" = mean(pred_2)) %>% 
+  ungroup() %>% 
+  pivot_longer(c("_smooth_yr", "_fctr_yr"), values_to = "temp", names_to = "source") %>% 
+  mutate(type = "model")
+
+pdat <- bind_rows(all_temp2, preds)
+
+blues <- brewer.pal(n = 9, name = "Blues")
+reds <- brewer.pal(n = 9, name = "Reds")
+pal <- c(reds[c(9, 6)], blues[c(9, 6, 3)])
+
+# Remember this is a prediction for logger!
+ggplot(pdat, aes(year, temp, color = source, linetype = type)) + 
+  geom_line() +
   facet_wrap(~area) + 
-  NULL
+  scale_color_manual(values = pal) + 
+  scale_linetype_manual(values = c(2,1))
 
-# save prediciton df
+# Only logger data
+pdat %>%
+  filter(!source %in% c("fishing", "errs")) %>% 
+  ggplot(aes(year, temp, color = source, linetype = type)) + 
+  geom_line() +
+  facet_wrap(~area) + 
+  scale_color_manual(values = pal) + 
+  scale_linetype_manual(values = c(2,1))
+
+# Only logger data - free scales
+pdat %>%
+  filter(!source %in% c("fishing", "errs")) %>% 
+  ggplot(aes(year, temp, color = source, linetype = type)) + 
+  geom_line() +
+  facet_wrap(~area, scales = "free") + 
+  scale_color_manual(values = pal) + 
+  scale_linetype_manual(values = c(2,1))
+
+# Save prediction df
+nd <- nd %>% 
+  dplyr::select(-pred_1) %>% 
+  rename(pred_sst = pred_2)
+
 write.csv(nd, "output/gam_predicted_temps.csv")
-
 ```
 

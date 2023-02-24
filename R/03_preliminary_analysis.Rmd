@@ -577,16 +577,14 @@ p1 <- pred_nls_fits %>%
   labs(x="Temperature (C)",y="Growth rate coefficient", title="Median annual growth coefficient vs mean annual SST by area with Sharpe-Schoolfield fit") +
   # facet_wrap(~area,scale="free_y") +
   NULL
-
-p1
 ```
 
 ```{r same as above but gam derived predicted temperatures}
 gam_pred_temp <- read_csv("output/gam_predicted_temps.csv") %>%
-  drop_na(pred) %>% 
+  drop_na(pred_sst) %>% 
   filter(growth_dat == "Y" & yday %in% c(yday("2000-03-01"):yday("2000-10-01")) & source == "logger") %>% 
   group_by(area, year) %>% 
-  summarise(temp = mean(pred))
+  summarise(temp = mean(pred_sst))
 
 ## get starting values on full dataset for Sharpe-Schoolfield model
 dat <- VBG %>%
@@ -628,10 +626,62 @@ for(a in 1:nareas) {
   new_data <- data.frame(temp=seq(min(dat$temp, na.rm = TRUE),max(dat$temp, na.rm = TRUE),length.out=100))
   pred <- augment(fit,newdata=new_data) %>%
     mutate(area=area[a])
+  
+  ## add t_opt
+  kb <- 0.000086173324 # Boltzmann's constant in unit Ev
+  pars <- data.frame(par = names(coef(fit)),
+                     est = coef(fit)) %>% 
+    pivot_wider(names_from = par, values_from = est)
+  
+  pred$t_opt <- (pars$eh*pars$th) / (pars$eh + kb*pars$th*log((pars$eh/pars$e)-1))
+  
   ## add to general data frame
   preds <- data.frame(rbind(preds,pred))
 }
 
+# one sharpe schoolfield fitted to all data
+gam_pred_temp_all <- gam_pred_temp %>%
+  ungroup %>%
+  mutate(id = paste(year, area, sep = "_")) %>%
+  dplyr::select(-area, -year)
+
+VBG_all <- VBG %>% 
+  mutate(id = paste(year, area, sep = "_")) %>%
+  left_join(gam_pred_temp_all, by = "id")
+
+fit_all <- nls_multstart(
+    k_median~sharpeschoolhigh_1981(temp=temp,r_tref,e,eh,th,tref=8),
+    data=VBG_all,
+    iter=c(3,3,3,3),
+    start_lower=start*0.5,
+    start_upper=start*2,
+    lower=lower,
+    upper=upper,
+    supp_errors='Y'
+    )
+
+  ## make predictions on new data
+  new_data_all <- data.frame(temp=seq(min(VBG_all$temp, na.rm = TRUE),max(VBG_all$temp, na.rm = TRUE),length.out=100))
+  pred_all <- augment(fit_all,newdata=new_data_all) %>% 
+    mutate(area = "all")
+
+  ## add t_opt
+  pars_all <- data.frame(par = names(coef(fit_all)),
+                         est = coef(fit_all)) %>% 
+    pivot_wider(names_from = par, values_from = est)
+  
+  pred_all$t_opt <- (pars_all$eh*pars_all$th) / (pars_all$eh + kb*pars_all$th*log((pars_all$eh/pars_all$e)-1))
+  
+  
+opt_dat <- 
+  bind_rows(pred_all %>% distinct(area, .keep_all = TRUE),
+            preds %>% distinct(area, .keep_all = TRUE))
+
+ggplot(opt_dat %>% filter(!area %in% c("all", "MU")), aes(area, t_opt)) + 
+  geom_point() + 
+  geom_hline(yintercept = filter(opt_dat, area == "all")$t_opt)
+
+      
 ## add mean SST across years by area for reordering
 pred_nls_fits <- preds %>%
   left_join(gam_pred_temp %>% group_by(area) %>% summarise(mean_SST_allyrs = mean(temp)),by=c("area")) %>%
@@ -640,7 +690,8 @@ pred_nls_fits <- preds %>%
 ## plot scaled median growth coefficients by year and area against mean SST
 VBG2 <- VBG %>% left_join(gam_pred_temp, by = c("area", "year"))
 
-p2 <- pred_nls_fits %>%
+# Main plot (as above but with gam-derived temperature)
+pred_nls_fits %>%
   ggplot(.,aes(temp,.fitted,color=factor(area))) + 
   geom_point(aes(temp,k_median,color=factor(area)),VBG2,size=0.6) + ## data
   geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
@@ -654,13 +705,29 @@ p2 <- pred_nls_fits %>%
   # facet_wrap(~area,scale="free_y") +
   NULL
 
-# Remove warm-water pollution areas
-p3 <- pred_nls_fits %>%
-  filter(!area %in% c("BT", "SI_EK", "SI_HA")) %>% 
-  ggplot(.,aes(temp,.fitted,color=factor(area))) + 
-  geom_point(aes(temp,k_median,color=factor(area)),VBG2 %>% filter(!area %in% c("BT", "SI_EK", "SI_HA")),size=0.6) + ## data
+# Separate warm-water pollution areas
+VBG2 <- VBG2 %>%
+  mutate(type = ifelse(area %in% c("BT", "SI_HA"), "warmed", "natural"))
+
+pred_nls_fits <- pred_nls_fits %>%
+  mutate(type = ifelse(area %in% c("BT", "SI_HA"), "warmed", "natural")) 
+  
+# Based on the plots below, it seems though that there is some pattern of local adaptation. With that I mean we can't really map all areas own trends onto a general fit across all areas. Most areas do have positive trends in the beginning and declining in the end however. If we superimpose a gam, sharpe schollfield or polynomial onto the whole data, it is unimodal though. In the whole dataset, 
+
+pred_nls_fits %>% 
+  ggplot(aes(temp,.fitted,color=factor(area))) + 
+  geom_point(aes(temp,k_median,color=factor(area)),VBG2,size=0.6) + ## data
   geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
+  geom_line(data = pred_all, aes(temp,.fitted), color = "grey50",size=1.5, linetype = 1) +
+  # stat_smooth(aes(temp,k_median, linetype = "quadratic"),
+  #             VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE, color = "grey40", se = FALSE, size = 1.5) +
   scale_color_manual(values=colors,name="Area") +
+  #facet_wrap(~type) +
+  # stat_smooth(aes(temp,k_median, group = type, linetype = "quadratic"),
+  #             VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE, color = "grey20", se = FALSE, size = 1.5) +
+  stat_smooth(aes(temp,k_median, group = type), linetype = 1, #, linetype = "gam, k=3"),
+              VBG2, method = gam, formula = y~s(x, k=3), inherit.aes = FALSE, color = "grey20", se = FALSE, size = 1.5) +
+  scale_linetype_manual(values = c(2,3)) + 
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=0)) +
   theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
@@ -670,14 +737,56 @@ p3 <- pred_nls_fits %>%
   # facet_wrap(~area,scale="free_y") +
   NULL
 
-p1 / p2 / p3
+# Remove SI_EK
+pred_nls_fits %>% 
+  filter(!area == "SI_EK") %>% 
+  ggplot(aes(temp,.fitted,color=factor(area))) + 
+  geom_point(aes(temp,k_median,color=factor(area)),VBG2 %>% filter(!area == "SI_EK"),size=0.6) + ## data
+  geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
+  #geom_line(data = pred_all, aes(temp,.fitted), color = "grey50",size=1.5, linetype = 1) +
+  # stat_smooth(aes(temp,k_median, linetype = "quadratic"),
+  #             VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE, color = "grey40", se = FALSE, size = 1.5) +
+  scale_color_manual(values=colors,name="Area") +
+  facet_wrap(~type, scales = "free") +
+  # stat_smooth(aes(temp,k_median, group = type, linetype = "quadratic"),
+  #             VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE, color = "grey20", se = FALSE, size = 1.5) +
+  # stat_smooth(aes(temp,k_median, group = type), linetype = 1, #, linetype = "gam, k=3"),
+  #             VBG2, method = gam, formula = y~s(x, k=3), inherit.aes = FALSE, color = "grey20", se = FALSE, size = 1.5) +
+  scale_linetype_manual(values = c(2,3)) + 
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  scale_x_continuous(breaks=seq(-5,20,1)) +
+  labs(x="Temperature (C)",y="Growth rate coefficient", title="Median annual growth coefficient vs mean annual SST by area with Sharpe-Schoolfield fit") +
+  # facet_wrap(~area,scale="free_y") +
+  NULL
+
 
 # Remove lines and area specific trends and just plot the whole things as one data set (polynomial fit)
 pred_nls_fits %>%
   ggplot(.,aes(temp,.fitted,color=factor(area))) + 
   geom_point(aes(temp,k_median,color=factor(area)),VBG2,size=0.6) + ## data
   #geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
-  stat_smooth(aes(temp,k_median),VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE) +
+  stat_smooth(aes(temp,k_median, group = type),VBG2, method = lm, formula = y~poly(x, 2), inherit.aes = FALSE) +
+  scale_color_manual(values=colors,name="Area") +
+  theme(plot.title=element_text(size=15,face="bold")) +
+  theme(axis.text.x=element_text(angle=0)) +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=15)) +
+  guides(color=guide_legend(override.aes=list(size=1))) +
+  scale_x_continuous(breaks=seq(-5,20,1)) +
+  labs(x="Temperature (C)",y="Growth rate coefficient", title="Median annual growth coefficient vs mean annual SST by area with Sharpe-Schoolfield fit") +
+  # facet_wrap(~area,scale="free_y") +
+  NULL
+
+# Remove SI_EK
+pred_nls_fits %>%
+  filter(!area == "SI_EK") %>% 
+  ggplot(.,aes(temp,.fitted,color=factor(area))) + 
+  geom_point(aes(temp,k_median,color=factor(area)),VBG2 %>% filter(!area == "SI_EK"),size=0.6) + ## data
+  #geom_line(aes(temp,.fitted,group=factor(area)),size=1) +
+  stat_smooth(aes(temp,k_median, group = type),VBG2 %>% filter(!area == "SI_EK"),
+              method = lm, formula = y~poly(x, 2), inherit.aes = FALSE) +
   scale_color_manual(values=colors,name="Area") +
   theme(plot.title=element_text(size=15,face="bold")) +
   theme(axis.text.x=element_text(angle=0)) +
